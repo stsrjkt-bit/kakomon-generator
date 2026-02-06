@@ -23,6 +23,18 @@ import {
 
 import type { ExamType, AnswerSplitResult } from "./types.js";
 
+/**
+ * ストレージパスセグメントをサニタイズする（パストラバーサル対策）
+ * ".." や "/" を除去し、安全なファイルパスセグメントにする
+ */
+function sanitizePathSegment(segment: string): string {
+  return segment
+    .replace(/\.\./g, "")
+    .replace(/[/\\]/g, "_")
+    .replace(/[^\p{L}\p{N}_\-. ]/gu, "")
+    .trim() || "unknown";
+}
+
 const program = new Command();
 
 program
@@ -210,8 +222,10 @@ async function handleUpload(
   console.log(`  大学ID: ${universityId}`);
 
   // 問題ドキュメントレコードを作成
+  const safeUniversity = sanitizePathSegment(opts.university);
+  const safeSubject = sanitizePathSegment(opts.subject);
   const examSegment = examType ?? "general";
-  const problemStoragePath = `${opts.university}/${opts.year}/${opts.subject}/${examSegment}/problem.pdf`;
+  const problemStoragePath = `${safeUniversity}/${opts.year}/${safeSubject}/${examSegment}/problem.pdf`;
   await uploadToR2(problemStoragePath, problemPdf, "application/pdf");
   const problemDocId = await createDocument({
     universityId,
@@ -226,7 +240,7 @@ async function handleUpload(
   // 解答ドキュメントレコードを作成（解答PDFがある場合）
   let answerDocId: string | null = null;
   if (answerPdf) {
-    const answerStoragePath = `${opts.university}/${opts.year}/${opts.subject}/${examSegment}/answer.pdf`;
+    const answerStoragePath = `${safeUniversity}/${opts.year}/${safeSubject}/${examSegment}/answer.pdf`;
     await uploadToR2(answerStoragePath, answerPdf, "application/pdf");
     answerDocId = await createDocument({
       universityId,
@@ -245,9 +259,9 @@ async function handleUpload(
 
     // 問題画像をR2にアップロード
     const imgKey = problemImageKey(
-      opts.university,
+      safeUniversity,
       opts.year,
-      opts.subject,
+      safeSubject,
       examSegment,
       qn,
     );
@@ -255,9 +269,9 @@ async function handleUpload(
 
     // 問題PDFをR2にアップロード
     const pdfKey = problemPdfKey(
-      opts.university,
+      safeUniversity,
       opts.year,
-      opts.subject,
+      safeSubject,
       examSegment,
       qn,
     );
@@ -268,9 +282,9 @@ async function handleUpload(
     const answerSplit = answerSplits.find((a) => a.questionNumber === qn);
     if (answerSplit) {
       const aKey = answerPdfKey(
-        opts.university,
+        safeUniversity,
         opts.year,
-        opts.subject,
+        safeSubject,
         examSegment,
         qn,
       );
@@ -284,14 +298,19 @@ async function handleUpload(
 
     // 境界情報を取得
     const boundary = splits[qn - 1];
+    if (boundary.regions.length === 0) {
+      throw new Error(
+        `Could not determine page range for question ${qn} ("${split.label}"). Regions array is empty.`,
+      );
+    }
 
     // DBに書き込み
     const questionId = await createQuestion({
       documentId: problemDocId,
       questionNumber: qn,
       questionLabel: split.label,
-      startPage: boundary.regions[0]?.page ?? 1,
-      endPage: boundary.regions[boundary.regions.length - 1]?.page ?? 1,
+      startPage: boundary.regions[0].page,
+      endPage: boundary.regions[boundary.regions.length - 1].page,
       topicTags,
       splitPdfPath: pdfKey,
       splitImagePath: imgKey,

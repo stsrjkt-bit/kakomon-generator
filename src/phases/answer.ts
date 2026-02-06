@@ -7,6 +7,7 @@ import {
   getPdfPageCount,
 } from "../lib/pdf.js";
 import { callWithRetry } from "./detect.js";
+import { sanitizeLabel } from "./split.js";
 import type { QuestionBoundary, BBox, AnswerSplitResult } from "../types.js";
 
 /**
@@ -105,18 +106,16 @@ async function detectAnswerRegions(
   pageImages: Buffer[],
   labels: string[],
 ): Promise<AnswerRegion[]> {
-  const allRegions: AnswerRegion[] = [];
+  const regionArrays = await Promise.all(
+    pageImages.map(async (pageImage, pageIndex) => {
+      const sharp = (await import("sharp")).default;
+      const metadata = await sharp(pageImage).metadata();
+      const imageWidth = metadata.width!;
+      const imageHeight = metadata.height!;
 
-  for (let pageIndex = 0; pageIndex < pageImages.length; pageIndex++) {
-    const pageImage = pageImages[pageIndex];
-    const sharp = (await import("sharp")).default;
-    const metadata = await sharp(pageImage).metadata();
-    const imageWidth = metadata.width!;
-    const imageHeight = metadata.height!;
+      const labelsStr = labels.map((l) => `「${sanitizeLabel(l)}」`).join("、");
 
-    const labelsStr = labels.map((l) => `「${l}」`).join("、");
-
-    const prompt = `あなたは日本の大学入試の解答PDFを分析するアシスタントです。
+      const prompt = `あなたは日本の大学入試の解答PDFを分析するアシスタントです。
 この画像は解答用紙の1ページです。
 
 以下の大問の解答が含まれているか確認し、含まれている大問の解答領域をそれぞれ検出してください。
@@ -137,21 +136,21 @@ async function detectAnswerRegions(
 
 このページにどの大問の解答も含まれていない場合は空の配列 [] を出力してください。`;
 
-    const response = await callWithRetry(() =>
-      askVisionWithImage(prompt, pageImage),
-    );
+      const response = await callWithRetry(() =>
+        askVisionWithImage(prompt, pageImage),
+      );
 
-    const regions = parseAnswerRegionResponse(
-      response,
-      pageIndex,
-      labels,
-      imageWidth,
-      imageHeight,
-    );
-    allRegions.push(...regions);
-  }
+      return parseAnswerRegionResponse(
+        response,
+        pageIndex,
+        labels,
+        imageWidth,
+        imageHeight,
+      );
+    }),
+  );
 
-  return allRegions;
+  return regionArrays.flat();
 }
 
 /**

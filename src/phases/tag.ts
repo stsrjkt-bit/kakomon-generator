@@ -1,7 +1,19 @@
 import { askVisionWithImage } from "../lib/gemini.js";
-import { getTopicsForSubject, isValidTopic } from "../constants/topic-master.js";
+import { TOPIC_MASTER, getTopicsForSubject, isValidTopic } from "../constants/topic-master.js";
 import { callWithRetry } from "./detect.js";
 import type { SplitResult, TagResult } from "../types.js";
+
+/** マスターリストに存在する科目一覧を取得する */
+function getValidSubjects(): Set<string> {
+  const subjects = new Set<string>();
+  for (const topic of TOPIC_MASTER) {
+    const slash = topic.indexOf("/");
+    if (slash > 0) {
+      subjects.add(topic.slice(0, slash));
+    }
+  }
+  return subjects;
+}
 
 /**
  * Phase 3: トピック付け
@@ -13,27 +25,35 @@ export async function tagQuestions(
   splits: SplitResult[],
   subject: string,
 ): Promise<TagResult[]> {
+  // 科目名をマスターリストに対してバリデーション
+  const validSubjects = getValidSubjects();
+  if (!validSubjects.has(subject)) {
+    console.warn(
+      `  警告: 科目「${subject}」はマスターリストに存在しません。有効な科目: ${[...validSubjects].join(", ")}`,
+    );
+  }
+
   const subjectTopics = getTopicsForSubject(subject);
 
   if (subjectTopics.length === 0) {
     console.warn(`  警告: 科目「${subject}」のトピックがマスターリストに見つかりません`);
   }
 
-  const results: TagResult[] = [];
+  const results = await Promise.all(
+    splits.map(async (split) => {
+      console.log(
+        `  [Phase 3] 大問${split.questionNumber}「${split.label}」にトピックを付与中...`,
+      );
 
-  for (const split of splits) {
-    console.log(
-      `  [Phase 3] 大問${split.questionNumber}「${split.label}」にトピックを付与中...`,
-    );
+      const tags = await detectTopics(split.imagePng, subject, subjectTopics);
 
-    const tags = await detectTopics(split.imagePng, subject, subjectTopics);
-
-    results.push({
-      label: split.label,
-      questionNumber: split.questionNumber,
-      topicTags: tags,
-    });
-  }
+      return {
+        label: split.label,
+        questionNumber: split.questionNumber,
+        topicTags: tags,
+      };
+    }),
+  );
 
   return results;
 }

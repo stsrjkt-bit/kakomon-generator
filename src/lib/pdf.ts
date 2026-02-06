@@ -3,15 +3,34 @@ import sharp from "sharp";
 import type { BBox } from "../types.js";
 
 /**
+ * PDFドキュメントのキャッシュ
+ * 同じPDFバッファに対して pdf() の再パースを避ける
+ */
+const pdfDocCache = new WeakMap<Buffer, ReturnType<typeof _loadPdfDoc>>();
+
+async function _loadPdfDoc(pdfBuffer: Buffer) {
+  const { pdf } = await import("pdf-to-img");
+  return pdf(pdfBuffer, { scale: 2 });
+}
+
+function getPdfDoc(pdfBuffer: Buffer) {
+  let cached = pdfDocCache.get(pdfBuffer);
+  if (!cached) {
+    cached = _loadPdfDoc(pdfBuffer);
+    pdfDocCache.set(pdfBuffer, cached);
+  }
+  return cached;
+}
+
+/**
  * PDFバッファから指定ページを画像 (PNG) に変換する
- * pdf-to-img は ESM dynamic import で読み込む
+ * 同じPDFバッファに対して繰り返し呼んでも再パースしない
  */
 export async function pdfPageToImage(
   pdfBuffer: Buffer,
   pageIndex: number,
 ): Promise<Buffer> {
-  const { pdf } = await import("pdf-to-img");
-  const doc = await pdf(pdfBuffer, { scale: 2 });
+  const doc = await getPdfDoc(pdfBuffer);
   const page = await doc.getPage(pageIndex + 1);
   return Buffer.from(page);
 }
@@ -22,8 +41,7 @@ export async function pdfPageToImage(
 export async function pdfAllPagesToImages(
   pdfBuffer: Buffer,
 ): Promise<Buffer[]> {
-  const { pdf } = await import("pdf-to-img");
-  const doc = await pdf(pdfBuffer, { scale: 2 });
+  const doc = await getPdfDoc(pdfBuffer);
   const images: Buffer[] = [];
   for await (const page of doc) {
     images.push(Buffer.from(page));

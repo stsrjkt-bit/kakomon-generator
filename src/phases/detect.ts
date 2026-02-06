@@ -53,7 +53,14 @@ function parseBoundaryResponse(response: string): QuestionBoundary[] {
     );
   }
 
-  const parsed: unknown = JSON.parse(jsonMatch[0]);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch {
+    throw new Error(
+      `Failed to parse boundary detection response: invalid JSON.\nResponse: ${response}`,
+    );
+  }
   if (!Array.isArray(parsed)) {
     throw new Error("Boundary detection response is not an array");
   }
