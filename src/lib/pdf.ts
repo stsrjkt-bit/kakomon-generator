@@ -1,0 +1,156 @@
+import { PDFDocument } from "pdf-lib";
+import sharp from "sharp";
+import type { BBox } from "../types.js";
+
+/**
+ * PDFバッファから指定ページを画像 (PNG) に変換する
+ * pdf-to-img は ESM dynamic import で読み込む
+ */
+export async function pdfPageToImage(
+  pdfBuffer: Buffer,
+  pageIndex: number,
+): Promise<Buffer> {
+  const { pdf } = await import("pdf-to-img");
+  const doc = await pdf(pdfBuffer, { scale: 2 });
+
+  let current = 0;
+  for await (const page of doc) {
+    if (current === pageIndex) {
+      return Buffer.from(page);
+    }
+    current++;
+  }
+  throw new Error(`Page index ${pageIndex} not found in PDF`);
+}
+
+/**
+ * PDFバッファの全ページを画像 (PNG) に変換する
+ */
+export async function pdfAllPagesToImages(
+  pdfBuffer: Buffer,
+): Promise<Buffer[]> {
+  const { pdf } = await import("pdf-to-img");
+  const doc = await pdf(pdfBuffer, { scale: 2 });
+  const images: Buffer[] = [];
+  for await (const page of doc) {
+    images.push(Buffer.from(page));
+  }
+  return images;
+}
+
+/**
+ * 画像バッファから BBox 領域を切り抜く
+ */
+export async function cropImage(
+  imageBuffer: Buffer,
+  bbox: BBox,
+): Promise<Buffer> {
+  return sharp(imageBuffer)
+    .extract({
+      left: Math.round(bbox.x),
+      top: Math.round(bbox.y),
+      width: Math.round(bbox.width),
+      height: Math.round(bbox.height),
+    })
+    .png()
+    .toBuffer();
+}
+
+/**
+ * 複数の切り抜き画像を縦方向に結合する（複数ページにまたがる大問用）
+ */
+export async function concatImagesVertically(
+  imageBuffers: Buffer[],
+): Promise<Buffer> {
+  if (imageBuffers.length === 0) {
+    throw new Error("No images to concatenate");
+  }
+  if (imageBuffers.length === 1) {
+    return imageBuffers[0];
+  }
+
+  const metadataList = await Promise.all(
+    imageBuffers.map((buf) => sharp(buf).metadata()),
+  );
+
+  const maxWidth = Math.max(
+    ...metadataList.map((m) => m.width ?? 0),
+  );
+  const totalHeight = metadataList.reduce(
+    (sum, m) => sum + (m.height ?? 0),
+    0,
+  );
+
+  // 各画像を上から順に配置
+  let yOffset = 0;
+  const compositeInputs = imageBuffers.map((buf, i) => {
+    const input = { input: buf, left: 0, top: yOffset };
+    yOffset += metadataList[i].height ?? 0;
+    return input;
+  });
+
+  return sharp({
+    create: {
+      width: maxWidth,
+      height: totalHeight,
+      channels: 4,
+      background: { r: 255, g: 255, b: 255, alpha: 1 },
+    },
+  })
+    .composite(compositeInputs)
+    .png()
+    .toBuffer();
+}
+
+/**
+ * 切り抜き画像群からA4サイズのPDFを生成する
+ * 各画像を1ページとしてA4に収める
+ */
+export async function createA4PdfFromImages(
+  imageBuffers: Buffer[],
+): Promise<Buffer> {
+  const A4_WIDTH = 595.28;
+  const A4_HEIGHT = 841.89;
+  const MARGIN = 36; // 0.5inch margin
+
+  const pdfDoc = await PDFDocument.create();
+  const usableWidth = A4_WIDTH - MARGIN * 2;
+  const usableHeight = A4_HEIGHT - MARGIN * 2;
+
+  for (const imgBuf of imageBuffers) {
+    const metadata = await sharp(imgBuf).metadata();
+    const imgWidth = metadata.width ?? 1;
+    const imgHeight = metadata.height ?? 1;
+
+    // A4の使用可能領域に収まるようスケーリング
+    const scale = Math.min(
+      usableWidth / imgWidth,
+      usableHeight / imgHeight,
+      1, // 元サイズより大きくしない
+    );
+
+    const drawWidth = imgWidth * scale;
+    const drawHeight = imgHeight * scale;
+
+    const page = pdfDoc.addPage([A4_WIDTH, A4_HEIGHT]);
+
+    const pngImage = await pdfDoc.embedPng(imgBuf);
+    page.drawImage(pngImage, {
+      x: MARGIN + (usableWidth - drawWidth) / 2,
+      y: A4_HEIGHT - MARGIN - drawHeight, // PDF座標は左下原点
+      width: drawWidth,
+      height: drawHeight,
+    });
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
+}
+
+/**
+ * PDFのページ数を取得する
+ */
+export async function getPdfPageCount(pdfBuffer: Buffer): Promise<number> {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  return pdfDoc.getPageCount();
+}
