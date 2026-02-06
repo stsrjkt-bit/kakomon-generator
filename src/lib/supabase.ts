@@ -39,7 +39,7 @@ export async function createDocument(params: {
   universityId: string;
   year: number;
   subject: string;
-  examType: ExamType;
+  examType: ExamType | null;
   contentType: "problem" | "answer";
   pdfStoragePath: string;
 }): Promise<string> {

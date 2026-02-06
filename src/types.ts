@@ -8,7 +8,7 @@ export interface CliOptions {
   subject: string;
   university: string;
   year: number;
-  examType: ExamType;
+  examType?: ExamType;
   outDir?: string;
 }
 
@@ -86,7 +86,7 @@ export interface DbDocument {
   university_id: string;
   year: number;
   subject: string;
-  exam_type: ExamType;
+  exam_type: ExamType | null;
   content_type: "problem" | "answer";
   pdf_storage_path: string;
 }
