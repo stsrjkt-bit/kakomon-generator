@@ -11,12 +11,9 @@ export async function pdfPageToImage(
   pageIndex: number,
 ): Promise<Buffer> {
   const { pdf } = await import("pdf-to-img");
-  const doc = await pdf(pdfBuffer, { scale: 2, pages: [pageIndex + 1] });
-
-  for await (const page of doc) {
-    return Buffer.from(page);
-  }
-  throw new Error(`Page index ${pageIndex} not found in PDF`);
+  const doc = await pdf(pdfBuffer, { scale: 2 });
+  const page = await doc.getPage(pageIndex + 1);
+  return Buffer.from(page);
 }
 
 /**
