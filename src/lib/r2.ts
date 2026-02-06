@@ -3,7 +3,11 @@ import {
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 
+let r2Client: S3Client | null = null;
+
 function getR2Client(): S3Client {
+  if (r2Client) return r2Client;
+
   const accountId = process.env.R2_ACCOUNT_ID;
   const accessKeyId = process.env.R2_ACCESS_KEY_ID;
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
@@ -14,7 +18,7 @@ function getR2Client(): S3Client {
     );
   }
 
-  return new S3Client({
+  r2Client = new S3Client({
     region: "auto",
     endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
     credentials: {
@@ -22,6 +26,8 @@ function getR2Client(): S3Client {
       secretAccessKey,
     },
   });
+
+  return r2Client;
 }
 
 const bucketName = process.env.R2_BUCKET_NAME ?? "kakomon";
@@ -48,6 +54,11 @@ export async function uploadToR2(
   return key;
 }
 
+/** パスセグメントをサニタイズする（"/" を "_" に置換） */
+function sanitize(segment: string): string {
+  return segment.replace(/\//g, "_");
+}
+
 /**
  * 問題画像のR2キーを生成する
  */
@@ -58,7 +69,7 @@ export function problemImageKey(
   examType: string,
   questionNumber: number,
 ): string {
-  return `${university}/${year}/${subject}/${examType}/q${questionNumber}.png`;
+  return `${sanitize(university)}/${year}/${sanitize(subject)}/${sanitize(examType)}/q${questionNumber}.png`;
 }
 
 /**
@@ -71,7 +82,7 @@ export function problemPdfKey(
   examType: string,
   questionNumber: number,
 ): string {
-  return `${university}/${year}/${subject}/${examType}/q${questionNumber}.pdf`;
+  return `${sanitize(university)}/${year}/${sanitize(subject)}/${sanitize(examType)}/q${questionNumber}.pdf`;
 }
 
 /**
@@ -84,5 +95,5 @@ export function answerPdfKey(
   examType: string,
   questionNumber: number,
 ): string {
-  return `${university}/${year}/${subject}/${examType}/a${questionNumber}.pdf`;
+  return `${sanitize(university)}/${year}/${sanitize(subject)}/${sanitize(examType)}/a${questionNumber}.pdf`;
 }

@@ -11,14 +11,10 @@ export async function pdfPageToImage(
   pageIndex: number,
 ): Promise<Buffer> {
   const { pdf } = await import("pdf-to-img");
-  const doc = await pdf(pdfBuffer, { scale: 2 });
+  const doc = await pdf(pdfBuffer, { scale: 2, pages: [pageIndex + 1] });
 
-  let current = 0;
   for await (const page of doc) {
-    if (current === pageIndex) {
-      return Buffer.from(page);
-    }
-    current++;
+    return Buffer.from(page);
   }
   throw new Error(`Page index ${pageIndex} not found in PDF`);
 }
@@ -73,11 +69,17 @@ export async function concatImagesVertically(
     imageBuffers.map((buf) => sharp(buf).metadata()),
   );
 
+  for (const m of metadataList) {
+    if (!m.width || !m.height) {
+      throw new Error("Image metadata missing width or height");
+    }
+  }
+
   const maxWidth = Math.max(
-    ...metadataList.map((m) => m.width ?? 0),
+    ...metadataList.map((m) => m.width!),
   );
   const totalHeight = metadataList.reduce(
-    (sum, m) => sum + (m.height ?? 0),
+    (sum, m) => sum + m.height!,
     0,
   );
 
@@ -85,7 +87,7 @@ export async function concatImagesVertically(
   let yOffset = 0;
   const compositeInputs = imageBuffers.map((buf, i) => {
     const input = { input: buf, left: 0, top: yOffset };
-    yOffset += metadataList[i].height ?? 0;
+    yOffset += metadataList[i].height!;
     return input;
   });
 
@@ -119,8 +121,11 @@ export async function createA4PdfFromImages(
 
   for (const imgBuf of imageBuffers) {
     const metadata = await sharp(imgBuf).metadata();
-    const imgWidth = metadata.width ?? 1;
-    const imgHeight = metadata.height ?? 1;
+    if (!metadata.width || !metadata.height) {
+      throw new Error("Image metadata missing width or height");
+    }
+    const imgWidth = metadata.width;
+    const imgHeight = metadata.height;
 
     // A4の使用可能領域に収まるようスケーリング
     const scale = Math.min(

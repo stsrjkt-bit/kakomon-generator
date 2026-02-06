@@ -1,13 +1,18 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { ExamType } from "../types.js";
 
+let supabaseClient: SupabaseClient | null = null;
+
 function getSupabaseClient(): SupabaseClient {
+  if (supabaseClient) return supabaseClient;
+
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
     throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
   }
-  return createClient(url, key);
+  supabaseClient = createClient(url, key);
+  return supabaseClient;
 }
 
 /**
@@ -16,23 +21,14 @@ function getSupabaseClient(): SupabaseClient {
 export async function upsertUniversity(name: string): Promise<string> {
   const supabase = getSupabaseClient();
 
-  const { data: existing } = await supabase
-    .from("kakomon_universities")
-    .select("id")
-    .eq("name", name)
-    .single();
-
-  if (existing) {
-    return existing.id as string;
-  }
-
   const { data, error } = await supabase
     .from("kakomon_universities")
-    .insert({ name })
+    .upsert({ name }, { onConflict: "name" })
     .select("id")
     .single();
 
-  if (error) throw new Error(`Failed to create university: ${error.message}`);
+  if (error) throw new Error(`Failed to upsert university: ${error.message}`);
+  if (!data) throw new Error("Failed to upsert university: no data returned");
   return data.id as string;
 }
 
@@ -63,6 +59,7 @@ export async function createDocument(params: {
     .single();
 
   if (error) throw new Error(`Failed to create document: ${error.message}`);
+  if (!data) throw new Error("Failed to create document: no data returned");
   return data.id as string;
 }
 
@@ -99,5 +96,6 @@ export async function createQuestion(params: {
     .single();
 
   if (error) throw new Error(`Failed to create question: ${error.message}`);
+  if (!data) throw new Error("Failed to create question: no data returned");
   return data.id as string;
 }

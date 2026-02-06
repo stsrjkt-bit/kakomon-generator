@@ -1,4 +1,16 @@
-import { GoogleGenerativeAI, type Part } from "@google/generative-ai";
+import { GoogleGenerativeAI, type GenerateContentResult, type Part } from "@google/generative-ai";
+
+/**
+ * レスポンスからテキストを安全に抽出する
+ * セーフティブロック時にはエラーをスローする
+ */
+function extractText(result: GenerateContentResult): string {
+  const blockReason = result.response.promptFeedback?.blockReason;
+  if (blockReason) {
+    throw new Error(`Gemini blocked the request: ${blockReason}`);
+  }
+  return result.response.text();
+}
 
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
@@ -25,8 +37,7 @@ export async function askVisionWithImage(
   };
 
   const result = await model.generateContent([prompt, imagePart]);
-  const response = result.response;
-  return response.text();
+  return extractText(result);
 }
 
 /**
@@ -44,8 +55,7 @@ export async function askVisionWithImages(
   }));
 
   const result = await model.generateContent([prompt, ...parts]);
-  const response = result.response;
-  return response.text();
+  return extractText(result);
 }
 
 /**
@@ -63,6 +73,5 @@ export async function askVisionWithPdf(
   };
 
   const result = await model.generateContent([prompt, pdfPart]);
-  const response = result.response;
-  return response.text();
+  return extractText(result);
 }
