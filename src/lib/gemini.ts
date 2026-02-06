@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, type GenerateContentResult, type Part } from "@google/generative-ai";
+import { GoogleGenerativeAI, type GenerateContentResult, type GenerativeModel, type Part } from "@google/generative-ai";
 
 /**
  * レスポンスからテキストを安全に抽出する
@@ -12,14 +12,25 @@ function extractText(result: GenerateContentResult): string {
   return result.response.text();
 }
 
-const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) {
-  throw new Error("GEMINI_API_KEY environment variable is required");
-}
+let _model: GenerativeModel | null = null;
 
-const modelName = process.env.GEMINI_VISION_MODEL ?? "gemini-3-flash-preview";
-const genAI = new GoogleGenerativeAI(apiKey);
-const model = genAI.getGenerativeModel({ model: modelName });
+/**
+ * Gemini モデルを遅延初期化する
+ * APIキーはAPI呼び出し時にのみ必要（--help や --dry-run 前にクラッシュしない）
+ */
+function getModel(): GenerativeModel {
+  if (_model) return _model;
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY environment variable is required");
+  }
+
+  const modelName = process.env.GEMINI_VISION_MODEL ?? "gemini-3-flash-preview";
+  const genAI = new GoogleGenerativeAI(apiKey);
+  _model = genAI.getGenerativeModel({ model: modelName });
+  return _model;
+}
 
 /**
  * 画像バッファ (PNG/JPEG) を Gemini Vision に送り、テキスト応答を得る
@@ -36,7 +47,7 @@ export async function askVisionWithImage(
     },
   };
 
-  const result = await model.generateContent([prompt, imagePart]);
+  const result = await getModel().generateContent([prompt, imagePart]);
   return extractText(result);
 }
 
@@ -54,7 +65,7 @@ export async function askVisionWithImages(
     },
   }));
 
-  const result = await model.generateContent([prompt, ...parts]);
+  const result = await getModel().generateContent([prompt, ...parts]);
   return extractText(result);
 }
 
@@ -72,6 +83,6 @@ export async function askVisionWithPdf(
     },
   };
 
-  const result = await model.generateContent([prompt, pdfPart]);
+  const result = await getModel().generateContent([prompt, pdfPart]);
   return extractText(result);
 }
