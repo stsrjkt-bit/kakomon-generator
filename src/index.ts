@@ -35,9 +35,9 @@ program
   .requiredOption("--subject <subject>", "科目名（例: 数学）")
   .requiredOption("--university <name>", "大学名（例: 東京大学）")
   .requiredOption("--year <year>", "出題年度", parseInt)
-  .requiredOption(
+  .option(
     "--exam-type <type>",
-    "試験種別（zenki / kouki / center / kyotsu）",
+    "試験種別（zenki / kouki / center / kyotsu）省略可",
   )
   .option("--out-dir <dir>", "ローカル出力ディレクトリ（dry-run時のみ使用）", "./output")
   .option("--dry-run", "アップロード・DB書き込みせず結果だけ表示", false)
@@ -51,17 +51,20 @@ async function run(opts: {
   subject: string;
   university: string;
   year: number;
-  examType: string;
+  examType?: string;
   outDir: string;
   dryRun: boolean;
 }): Promise<void> {
-  const examType = opts.examType as ExamType;
   const validExamTypes: ExamType[] = ["zenki", "kouki", "center", "kyotsu"];
-  if (!validExamTypes.includes(examType)) {
-    console.error(
-      `エラー: 無効な試験種別「${opts.examType}」。有効な値: ${validExamTypes.join(", ")}`,
-    );
-    process.exit(1);
+  let examType: ExamType | null = null;
+  if (opts.examType) {
+    if (!validExamTypes.includes(opts.examType as ExamType)) {
+      console.error(
+        `エラー: 無効な試験種別「${opts.examType}」。有効な値: ${validExamTypes.join(", ")}`,
+      );
+      process.exit(1);
+    }
+    examType = opts.examType as ExamType;
   }
 
   // ========================================
@@ -152,7 +155,7 @@ async function run(opts: {
  * dry-run モード: ローカルにファイルを保存
  */
 async function handleDryRun(
-  opts: { outDir: string; university: string; year: number; subject: string; examType: string },
+  opts: { outDir: string; university: string; year: number; subject: string },
   splits: Awaited<ReturnType<typeof splitProblems>>,
   tags: Awaited<ReturnType<typeof tagQuestions>>,
   answerSplits: AnswerSplitResult[],
@@ -193,7 +196,7 @@ async function handleDryRun(
  */
 async function handleUpload(
   opts: { university: string; year: number; subject: string },
-  examType: ExamType,
+  examType: ExamType | null,
   problemPdf: Buffer,
   answerPdf: Buffer | null,
   splits: Awaited<ReturnType<typeof splitProblems>>,
@@ -207,7 +210,8 @@ async function handleUpload(
   console.log(`  大学ID: ${universityId}`);
 
   // 問題ドキュメントレコードを作成
-  const problemStoragePath = `${opts.university}/${opts.year}/${opts.subject}/${examType}/problem.pdf`;
+  const examSegment = examType ?? "general";
+  const problemStoragePath = `${opts.university}/${opts.year}/${opts.subject}/${examSegment}/problem.pdf`;
   await uploadToR2(problemStoragePath, problemPdf, "application/pdf");
   const problemDocId = await createDocument({
     universityId,
@@ -222,7 +226,7 @@ async function handleUpload(
   // 解答ドキュメントレコードを作成（解答PDFがある場合）
   let answerDocId: string | null = null;
   if (answerPdf) {
-    const answerStoragePath = `${opts.university}/${opts.year}/${opts.subject}/${examType}/answer.pdf`;
+    const answerStoragePath = `${opts.university}/${opts.year}/${opts.subject}/${examSegment}/answer.pdf`;
     await uploadToR2(answerStoragePath, answerPdf, "application/pdf");
     answerDocId = await createDocument({
       universityId,
@@ -244,7 +248,7 @@ async function handleUpload(
       opts.university,
       opts.year,
       opts.subject,
-      examType,
+      examSegment,
       qn,
     );
     await uploadToR2(imgKey, split.imagePng, "image/png");
@@ -254,7 +258,7 @@ async function handleUpload(
       opts.university,
       opts.year,
       opts.subject,
-      examType,
+      examSegment,
       qn,
     );
     await uploadToR2(pdfKey, split.pdfBuffer, "application/pdf");
@@ -267,7 +271,7 @@ async function handleUpload(
         opts.university,
         opts.year,
         opts.subject,
-        examType,
+        examSegment,
         qn,
       );
       await uploadToR2(aKey, answerSplit.pdfBuffer, "application/pdf");
