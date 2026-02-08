@@ -3,6 +3,29 @@ import {
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 
+/** 科目名（日本語）→ ASCIIキーのマッピング */
+const SUBJECT_KEY_MAP: Record<string, string> = {
+  数学: "math",
+  物理: "physics",
+  化学: "chemistry",
+  生物: "biology",
+  英語: "english",
+  国語: "japanese",
+};
+
+/**
+ * 科目名（日本語）をASCIIキーに変換する
+ * マッピングに存在しない場合はエラー
+ */
+export function resolveSubjectKey(subject: string): string {
+  const key = SUBJECT_KEY_MAP[subject];
+  if (!key) {
+    const valid = Object.keys(SUBJECT_KEY_MAP).join(", ");
+    throw new Error(`Unknown subject: "${subject}" (valid: ${valid})`);
+  }
+  return key;
+}
+
 let r2Client: S3Client | null = null;
 
 function getR2Client(): S3Client {
@@ -54,59 +77,54 @@ export async function uploadToR2(
   return key;
 }
 
-/** パスセグメントをサニタイズする（"/" を "_" に置換） */
-function sanitize(segment: string): string {
-  return segment.replace(/\//g, "_");
-}
-
 /**
  * 問題画像のR2キーを生成する
  */
 export function problemImageKey(
-  university: string,
+  universityId: string,
   year: number,
-  subject: string,
+  subjectKey: string,
   examType: string,
   questionNumber: number,
 ): string {
-  return `${sanitize(university)}/${year}/${sanitize(subject)}/${sanitize(examType)}/q${questionNumber}.png`;
+  return `${universityId}/${year}/${subjectKey}/${examType}/q${questionNumber}.png`;
 }
 
 /**
  * 問題PDFのR2キーを生成する
  */
 export function problemPdfKey(
-  university: string,
+  universityId: string,
   year: number,
-  subject: string,
+  subjectKey: string,
   examType: string,
   questionNumber: number,
 ): string {
-  return `${sanitize(university)}/${year}/${sanitize(subject)}/${sanitize(examType)}/q${questionNumber}.pdf`;
+  return `${universityId}/${year}/${subjectKey}/${examType}/q${questionNumber}.pdf`;
 }
 
 /**
  * 解答PDFのR2キーを生成する
  */
 export function answerPdfKey(
-  university: string,
+  universityId: string,
   year: number,
-  subject: string,
+  subjectKey: string,
   examType: string,
   questionNumber: number,
 ): string {
-  return `${sanitize(university)}/${year}/${sanitize(subject)}/${sanitize(examType)}/a${questionNumber}.pdf`;
+  return `${universityId}/${year}/${subjectKey}/${examType}/a${questionNumber}.pdf`;
 }
 
 /**
  * オリジナルPDFのR2キーを生成する
  */
 export function originalPdfKey(
-  university: string,
+  universityId: string,
   year: number,
-  subject: string,
+  subjectKey: string,
   examType: string,
   contentType: "problem" | "answer",
 ): string {
-  return `${sanitize(university)}/${year}/${sanitize(subject)}/${sanitize(examType)}/${contentType}.pdf`;
+  return `${universityId}/${year}/${subjectKey}/${examType}/${contentType}.pdf`;
 }
