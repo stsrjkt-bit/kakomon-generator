@@ -1,233 +1,205 @@
-import { askVisionWithImage } from "../lib/gemini.js";
+/**
+ * Phase 4: 解答の切り出し
+ *
+ * 解答PDFをまるごとGemini Visionに渡して全ページ分の解答領域を一括検出し、
+ * 各大問の解答を切り出してA4 PDFを生成する。
+ *
+ * PDFを画像化してGeminiに渡すことは絶対にしない。
+ * GeminiにはPDFバイナリを直接渡す。
+ * ページ画像化はBBox変換と切り抜きのためだけに行う。
+ */
+
+import { askVisionWithPdf, callWithRetry, extractJson } from "../lib/gemini.js";
+import { ThinkingLevel } from "@google/genai";
 import {
   pdfPageToImage,
   cropImage,
-  concatImagesVertically,
   createA4PdfFromImages,
-  getPdfPageCount,
 } from "../lib/pdf.js";
-import { callWithRetry } from "./detect.js";
-import { sanitizeLabel } from "./split.js";
-import type { QuestionBoundary, BBox, AnswerSplitResult } from "../types.js";
+import type {
+  QuestionBoundary,
+  AnswerSplitResult,
+  BBox,
+} from "../types.js";
+import sharp from "sharp";
+
+/** Geminiから返されるページ内の解答領域（割合ベース） */
+interface AnswerRegionRatio {
+  label: string;
+  /** ページ番号（1始まり） */
+  page: number;
+  y_start_ratio: number;
+  y_end_ratio: number;
+  x_start_ratio: number;
+  x_end_ratio: number;
+}
+
+/** ページ画像のキャッシュ（同じページを複数回画像化しないため） */
+interface PageImageCache {
+  imageBuffer: Buffer;
+  width: number;
+  height: number;
+}
+
+/**
+ * 解答PDFをまるごとGeminiに渡して全大問の解答領域を一括検出する
+ */
+async function detectAnswerRegions(
+  answerPdfBuffer: Buffer,
+  boundaries: QuestionBoundary[],
+): Promise<AnswerRegionRatio[]> {
+  const questionList = boundaries
+    .map((b) => `"${b.label}"`)
+    .join(", ");
+
+  const prompt = `この大学入試の解答PDFを見て、各大問の解答が記載されている領域を検出してください。
+
+検出対象の大問: ${questionList}
+
+各大問の解答領域について、以下の情報をJSON配列で返してください:
+- label: 大問のラベル（上記の大問ラベルと完全一致させること）
+- page: その解答が記載されているページ番号（1始まり）
+- y_start_ratio: 解答領域の上端の位置（ページ上端を0.0、下端を1.0とした割合）
+- y_end_ratio: 解答領域の下端の位置（同上）
+- x_start_ratio: 解答領域の左端の位置（ページ左端を0.0、右端を1.0とした割合）
+- x_end_ratio: 解答領域の右端の位置（同上）
+
+注意:
+- 1つの大問の解答が複数ページにまたがる場合は、ページごとに別の要素として返してください。
+- 割合は0.0〜1.0の範囲で、小数点以下2桁程度の精度で返してください。
+- ヘッダー・フッター・ページ番号は含めないでください。
+- JSON配列のみを返してください。マークダウンのコードブロックは不要です。
+
+例:
+[{"label":"第1問","page":1,"y_start_ratio":0.0,"y_end_ratio":0.45,"x_start_ratio":0.0,"x_end_ratio":1.0},{"label":"第2問","page":1,"y_start_ratio":0.45,"y_end_ratio":1.0,"x_start_ratio":0.0,"x_end_ratio":1.0},{"label":"第3問","page":2,"y_start_ratio":0.0,"y_end_ratio":0.5,"x_start_ratio":0.0,"x_end_ratio":1.0}]`;
+
+  const raw = await callWithRetry(() =>
+    askVisionWithPdf(prompt, answerPdfBuffer, ThinkingLevel.HIGH),
+  );
+
+  const parsed: AnswerRegionRatio[] = extractJson(raw);
+  return parsed;
+}
+
+/**
+ * ページ画像を取得し、サイズ情報をキャッシュから返す
+ */
+async function getPageImage(
+  pdfBuffer: Buffer,
+  pageNumber: number,
+  cache: Map<number, PageImageCache>,
+): Promise<PageImageCache> {
+  const cached = cache.get(pageNumber);
+  if (cached) return cached;
+
+  // pageNumber は1始まり、pdfPageToImage は0始まりのインデックス
+  const imageBuffer = await pdfPageToImage(pdfBuffer, pageNumber - 1);
+  const metadata = await sharp(imageBuffer).metadata();
+  if (!metadata.width || !metadata.height) {
+    throw new Error(`Page ${pageNumber} image metadata missing dimensions`);
+  }
+
+  const entry: PageImageCache = {
+    imageBuffer,
+    width: metadata.width,
+    height: metadata.height,
+  };
+  cache.set(pageNumber, entry);
+  return entry;
+}
+
+/**
+ * 割合ベースの領域をピクセル座標のBBoxに変換する
+ */
+function ratioToBBox(
+  region: AnswerRegionRatio,
+  pageWidth: number,
+  pageHeight: number,
+): BBox {
+  const x = Math.round(region.x_start_ratio * pageWidth);
+  const y = Math.round(region.y_start_ratio * pageHeight);
+  const width = Math.round(
+    (region.x_end_ratio - region.x_start_ratio) * pageWidth,
+  );
+  const height = Math.round(
+    (region.y_end_ratio - region.y_start_ratio) * pageHeight,
+  );
+
+  return {
+    x: Math.max(0, x),
+    y: Math.max(0, y),
+    width: Math.max(1, Math.min(width, pageWidth - x)),
+    height: Math.max(1, Math.min(height, pageHeight - y)),
+  };
+}
 
 /**
  * Phase 4: 解答の切り出し
  *
- * 解答PDFの各ページを画像化 → Gemini Vision で大問番号ごとのBBox検出
- * Phase 1 で検出した大問番号とマッチする領域を切り抜き
- * 出力: 解答PDF(A4)
+ * 解答PDFと大問境界情報を受け取り、各大問の解答をA4 PDFとして切り出す。
  */
 export async function splitAnswers(
   answerPdfBuffer: Buffer,
   boundaries: QuestionBoundary[],
 ): Promise<AnswerSplitResult[]> {
-  const totalPages = await getPdfPageCount(answerPdfBuffer);
-  const labels = boundaries.map((b) => b.label);
+  console.log(
+    `  📄 解答PDF (${(answerPdfBuffer.length / 1024).toFixed(0)} KB) をGeminiに送信して解答領域を一括検出中...`,
+  );
 
-  // 全ページの画像を事前に取得
-  const pageImages: Buffer[] = [];
-  for (let i = 0; i < totalPages; i++) {
-    pageImages.push(await pdfPageToImage(answerPdfBuffer, i));
+  // 1. 解答PDFをまるごとGeminiに渡して全大問の解答領域を一括取得
+  const regions = await detectAnswerRegions(answerPdfBuffer, boundaries);
+  console.log(`  📄 ${regions.length}個の解答領域を検出`);
+
+  // 2. 必要なページを画像化してピクセルサイズを取得（キャッシュ付き）
+  const pageCache = new Map<number, PageImageCache>();
+  const usedPages = [...new Set(regions.map((r) => r.page))];
+  for (const pageNum of usedPages) {
+    await getPageImage(answerPdfBuffer, pageNum, pageCache);
   }
 
-  // 各ページで大問ごとの領域を検出
-  const pageRegions = await detectAnswerRegions(pageImages, labels);
-
-  // 大問ごとに切り抜いて結合
+  // 3. 大問ごとにグループ化して切り出し
   const results: AnswerSplitResult[] = [];
 
-  for (let i = 0; i < boundaries.length; i++) {
-    const boundary = boundaries[i];
-    const questionNumber = i + 1;
-    console.log(
-      `  [Phase 4] 大問${questionNumber}「${boundary.label}」の解答を切り出し中...`,
+  for (const boundary of boundaries) {
+    const questionRegions = regions.filter(
+      (r) => r.label === boundary.label,
     );
 
-    const regionsForQuestion = pageRegions
-      .filter((r) => r.label === boundary.label)
-      .sort((a, b) => a.page - b.page);
-
-    if (regionsForQuestion.length === 0) {
-      console.warn(
-        `  警告: 大問${questionNumber}「${boundary.label}」の解答領域が見つかりませんでした`,
-      );
-      // 空のPDFを生成（解答が見つからない場合のフォールバック）
-      const sharp = (await import("sharp")).default;
-      const placeholder = await sharp({
-        create: {
-          width: 200,
-          height: 100,
-          channels: 4,
-          background: { r: 255, g: 255, b: 255, alpha: 1 },
-        },
-      })
-        .png()
-        .toBuffer();
-
-      results.push({
-        label: boundary.label,
-        questionNumber,
-        pdfBuffer: await createA4PdfFromImages([placeholder]),
-      });
+    if (questionRegions.length === 0) {
+      console.warn(`  ⚠ ${boundary.label} の解答領域が見つかりませんでした`);
       continue;
     }
 
+    // ページ番号順にソート
+    questionRegions.sort((a, b) => a.page - b.page);
+
+    // 各ページの領域を切り出し
     const croppedImages: Buffer[] = [];
-    for (const region of regionsForQuestion) {
-      const cropped = await cropImage(pageImages[region.page], region.bbox);
+    for (const region of questionRegions) {
+      const pageImage = await getPageImage(
+        answerPdfBuffer,
+        region.page,
+        pageCache,
+      );
+      const bbox = ratioToBBox(region, pageImage.width, pageImage.height);
+      const cropped = await cropImage(pageImage.imageBuffer, bbox);
       croppedImages.push(cropped);
     }
 
-    // 複数ページの解答は結合してA4 PDFにする
-    // 各切り抜き画像をそのままA4の各ページに配置
-    const pdfResult = await createA4PdfFromImages(croppedImages);
+    // 切り出し画像からA4 PDFを生成
+    const pdfBuffer = await createA4PdfFromImages(croppedImages);
 
+    const questionNumber = boundaries.indexOf(boundary) + 1;
     results.push({
       label: boundary.label,
       questionNumber,
-      pdfBuffer: pdfResult,
+      pdfBuffer,
     });
+
+    console.log(
+      `  ✂️  ${boundary.label}: ${questionRegions.length}ページ分の解答を切り出し`,
+    );
   }
 
   return results;
-}
-
-/** ページ内で検出された大問の解答領域 */
-interface AnswerRegion {
-  label: string;
-  page: number; // 0始まりのページインデックス
-  bbox: BBox;
-}
-
-/**
- * 各ページで大問ごとの解答領域を検出する
- */
-async function detectAnswerRegions(
-  pageImages: Buffer[],
-  labels: string[],
-): Promise<AnswerRegion[]> {
-  const regionArrays = await Promise.all(
-    pageImages.map(async (pageImage, pageIndex) => {
-      const sharp = (await import("sharp")).default;
-      const metadata = await sharp(pageImage).metadata();
-      const imageWidth = metadata.width!;
-      const imageHeight = metadata.height!;
-
-      const labelsStr = labels.map((l) => `「${sanitizeLabel(l)}」`).join("、");
-
-      const prompt = `あなたは日本の大学入試の解答PDFを分析するアシスタントです。
-この画像は解答用紙の1ページです。
-
-以下の大問の解答が含まれているか確認し、含まれている大問の解答領域をそれぞれ検出してください。
-対象の大問: ${labelsStr}
-
-画像のサイズは幅${imageWidth}ピクセル、高さ${imageHeight}ピクセルです。
-
-注意事項：
-- このページに含まれていない大問の解答は出力しないでください
-- 各大問の解答領域を矩形（BBox）で囲んでください
-- 座標はピクセル単位の整数で指定してください
-- 余白を少し含めて読みやすくしてください
-
-以下のJSON配列形式で出力してください。JSONのみを出力し、説明は不要です：
-[
-  { "label": "第1問", "x": 0, "y": 0, "width": 100, "height": 200 }
-]
-
-このページにどの大問の解答も含まれていない場合は空の配列 [] を出力してください。`;
-
-      const response = await callWithRetry(() =>
-        askVisionWithImage(prompt, pageImage),
-      );
-
-      return parseAnswerRegionResponse(
-        response,
-        pageIndex,
-        labels,
-        imageWidth,
-        imageHeight,
-      );
-    }),
-  );
-
-  return regionArrays.flat();
-}
-
-/**
- * 解答領域レスポンスをパースする
- */
-function parseAnswerRegionResponse(
-  response: string,
-  pageIndex: number,
-  validLabels: string[],
-  imageWidth: number,
-  imageHeight: number,
-): AnswerRegion[] {
-  const jsonMatch = response.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
-    return [];
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch {
-    console.warn(`  警告: 解答領域レスポンスのJSONパースに失敗（ページ${pageIndex + 1}）`);
-    return [];
-  }
-
-  if (!Array.isArray(parsed)) {
-    return [];
-  }
-
-  const regions: AnswerRegion[] = [];
-
-  for (const item of parsed) {
-    const record = item as Record<string, unknown>;
-    const label = record.label as string;
-    let x = record.x as number;
-    let y = record.y as number;
-    let width = record.width as number;
-    let height = record.height as number;
-
-    if (
-      !label ||
-      typeof x !== "number" ||
-      typeof y !== "number" ||
-      typeof width !== "number" ||
-      typeof height !== "number"
-    ) {
-      continue;
-    }
-
-    // 検出されたラベルが有効な大問ラベルに含まれるか確認
-    if (!validLabels.includes(label)) {
-      continue;
-    }
-
-    // 画像サイズ内に収まるよう補正
-    x = Math.max(0, Math.round(x));
-    y = Math.max(0, Math.round(y));
-    width = Math.round(width);
-    height = Math.round(height);
-
-    if (x + width > imageWidth) {
-      width = imageWidth - x;
-    }
-    if (y + height > imageHeight) {
-      height = imageHeight - y;
-    }
-
-    if (width <= 0 || height <= 0) {
-      continue;
-    }
-
-    regions.push({
-      label,
-      page: pageIndex,
-      bbox: { x, y, width, height },
-    });
-  }
-
-  return regions;
 }
