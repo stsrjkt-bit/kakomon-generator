@@ -16,19 +16,19 @@ function getSupabaseClient(): SupabaseClient {
 }
 
 /**
- * 大学を取得または作成し、IDを返す
+ * 大学を名前で検索し、IDを返す（存在しない場合はエラー）
  */
 export async function upsertUniversity(name: string): Promise<string> {
   const supabase = getSupabaseClient();
 
   const { data, error } = await supabase
     .from("kakomon_universities")
-    .upsert({ name }, { onConflict: "name" })
     .select("id")
+    .eq("name", name)
     .single();
 
-  if (error) throw new Error(`Failed to upsert university: ${error.message}`);
-  if (!data) throw new Error("Failed to upsert university: no data returned");
+  if (error) throw new Error(`University not found: "${name}" (${error.message})`);
+  if (!data) throw new Error(`University not found: "${name}"`);
   return data.id as string;
 }
 
@@ -39,7 +39,7 @@ export async function createDocument(params: {
   universityId: string;
   year: number;
   subject: string;
-  examType: ExamType | null;
+  examType: ExamType;
   contentType: "problem" | "answer";
   pdfStoragePath: string;
 }): Promise<string> {

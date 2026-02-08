@@ -1,38 +1,49 @@
 import { PDFDocument } from "pdf-lib";
 import sharp from "sharp";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { BBox } from "../types.js";
 
-/**
- * PDFドキュメントのキャッシュ
- * 同じPDFバッファに対して pdf() の再パースを避ける
- */
-const pdfDocCache = new WeakMap<Buffer, ReturnType<typeof _loadPdfDoc>>();
-
-async function _loadPdfDoc(pdfBuffer: Buffer) {
-  const { pdf } = await import("pdf-to-img");
-  return pdf(pdfBuffer, { scale: 2 });
-}
-
-function getPdfDoc(pdfBuffer: Buffer) {
-  let cached = pdfDocCache.get(pdfBuffer);
-  if (!cached) {
-    cached = _loadPdfDoc(pdfBuffer);
-    pdfDocCache.set(pdfBuffer, cached);
-  }
-  return cached;
-}
+const execFileAsync = promisify(execFile);
 
 /**
  * PDFバッファから指定ページを画像 (PNG) に変換する
- * 同じPDFバッファに対して繰り返し呼んでも再パースしない
+ * pdftoppm を使用（canvas ネイティブモジュール不要）
  */
 export async function pdfPageToImage(
   pdfBuffer: Buffer,
   pageIndex: number,
 ): Promise<Buffer> {
-  const doc = await getPdfDoc(pdfBuffer);
-  const page = await doc.getPage(pageIndex + 1);
-  return Buffer.from(page);
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "pdf2img-"));
+  const pdfPath = path.join(tmpDir, "input.pdf");
+  const outPrefix = path.join(tmpDir, "page");
+  const pageNum = pageIndex + 1; // pdftoppm は1始まり
+
+  try {
+    await fs.writeFile(pdfPath, pdfBuffer);
+    await execFileAsync("pdftoppm", [
+      "-png",
+      "-r", "288", // 288 DPI (≈ scale 2x at 144 base)
+      "-f", String(pageNum),
+      "-l", String(pageNum),
+      pdfPath,
+      outPrefix,
+    ]);
+
+    // pdftoppm の出力ファイル名を探す（page-01.png, page-001.png 等）
+    const files = await fs.readdir(tmpDir);
+    const pngFile = files.find((f) => f.startsWith("page") && f.endsWith(".png"));
+    if (!pngFile) {
+      throw new Error(`pdftoppm produced no output for page ${pageNum}`);
+    }
+
+    return await fs.readFile(path.join(tmpDir, pngFile));
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -41,12 +52,31 @@ export async function pdfPageToImage(
 export async function pdfAllPagesToImages(
   pdfBuffer: Buffer,
 ): Promise<Buffer[]> {
-  const doc = await getPdfDoc(pdfBuffer);
-  const images: Buffer[] = [];
-  for await (const page of doc) {
-    images.push(Buffer.from(page));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "pdf2img-"));
+  const pdfPath = path.join(tmpDir, "input.pdf");
+  const outPrefix = path.join(tmpDir, "page");
+
+  try {
+    await fs.writeFile(pdfPath, pdfBuffer);
+    await execFileAsync("pdftoppm", [
+      "-png",
+      "-r", "288",
+      pdfPath,
+      outPrefix,
+    ]);
+
+    const files = (await fs.readdir(tmpDir))
+      .filter((f) => f.startsWith("page") && f.endsWith(".png"))
+      .sort();
+
+    const images: Buffer[] = [];
+    for (const f of files) {
+      images.push(await fs.readFile(path.join(tmpDir, f)));
+    }
+    return images;
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
   }
-  return images;
 }
 
 /**

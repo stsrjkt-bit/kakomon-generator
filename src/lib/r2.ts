@@ -97,3 +97,16 @@ export function answerPdfKey(
 ): string {
   return `${sanitize(university)}/${year}/${sanitize(subject)}/${sanitize(examType)}/a${questionNumber}.pdf`;
 }
+
+/**
+ * オリジナルPDFのR2キーを生成する
+ */
+export function originalPdfKey(
+  university: string,
+  year: number,
+  subject: string,
+  examType: string,
+  contentType: "problem" | "answer",
+): string {
+  return `${sanitize(university)}/${year}/${sanitize(subject)}/${sanitize(examType)}/${contentType}.pdf`;
+}

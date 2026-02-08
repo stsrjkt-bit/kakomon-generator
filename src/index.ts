@@ -1,16 +1,23 @@
-#!/usr/bin/env node
+/**
+ * kakomon-generator CLIエントリポイント
+ *
+ * 処理フロー:
+ *   Phase 1+2a: detectQuestions — 問題PDF → Gemini で境界+座標を一括検出
+ *   Phase 2b:   splitProblems  — 検出結果 → 画像切り出し+PDF生成（Gemini不使用）
+ *   Phase 3:    tagQuestions   — 切り出し画像 → Gemini でトピック付け
+ *   Phase 4:    splitAnswers   — 解答PDF → Gemini で解答領域一括検出+切り出し
+ */
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { resolve, join } from "node:path";
-import { Command } from "commander";
+import fs from "node:fs/promises";
+import path from "node:path";
 
-import { detectBoundaries } from "./phases/detect.js";
+import { detectQuestions } from "./phases/detect.js";
 import { splitProblems } from "./phases/split.js";
 import { tagQuestions } from "./phases/tag.js";
 import { splitAnswers } from "./phases/answer.js";
-
 import {
   uploadToR2,
+  originalPdfKey,
   problemImageKey,
   problemPdfKey,
   answerPdfKey,
@@ -20,309 +27,205 @@ import {
   createDocument,
   createQuestion,
 } from "./lib/supabase.js";
-
-import type { ExamType, AnswerSplitResult } from "./types.js";
-
-/**
- * ストレージパスセグメントをサニタイズする（パストラバーサル対策）
- * ".." や "/" を除去し、安全なファイルパスセグメントにする
- */
-function sanitizePathSegment(segment: string): string {
-  return segment
-    .replace(/\.\./g, "")
-    .replace(/[/\\]/g, "_")
-    .replace(/[^\p{L}\p{N}_\-. ]/gu, "")
-    .trim() || "unknown";
-}
-
-const program = new Command();
-
-program
-  .name("kakomon-generate")
-  .description(
-    "大学入試の過去問PDFから大問ごとに問題画像・問題PDF・解答PDF・トピックタグを生成する",
-  )
-  .requiredOption("--problem <path>", "問題PDFのパス")
-  .option("--answer <path>", "解答PDFのパス（省略時はPhase 4をスキップ）")
-  .requiredOption("--subject <subject>", "科目名（例: 数学）")
-  .requiredOption("--university <name>", "大学名（例: 東京大学）")
-  .requiredOption("--year <year>", "出題年度", parseInt)
-  .option(
-    "--exam-type <type>",
-    "試験種別（zenki / kouki / center / kyotsu）省略可",
-  )
-  .option("--out-dir <dir>", "ローカル出力ディレクトリ（dry-run時のみ使用）", "./output")
-  .option("--dry-run", "アップロード・DB書き込みせず結果だけ表示", false)
-  .action(run);
-
-program.parse();
-
-async function run(opts: {
-  problem: string;
-  answer?: string;
-  subject: string;
-  university: string;
-  year: number;
-  examType?: string;
-  outDir: string;
-  dryRun: boolean;
-}): Promise<void> {
-  const validExamTypes: ExamType[] = ["zenki", "kouki", "center", "kyotsu"];
-  let examType: ExamType | null = null;
-  if (opts.examType) {
-    if (!validExamTypes.includes(opts.examType as ExamType)) {
-      console.error(
-        `エラー: 無効な試験種別「${opts.examType}」。有効な値: ${validExamTypes.join(", ")}`,
-      );
-      process.exit(1);
-    }
-    examType = opts.examType as ExamType;
-  }
-
-  // ========================================
-  // 入力ファイルの読み込み
-  // ========================================
-  console.log("入力ファイルを読み込み中...");
-  const problemPath = resolve(opts.problem);
-  const problemPdf = await readFile(problemPath);
-
-  let answerPdf: Buffer | null = null;
-  if (opts.answer) {
-    const answerPath = resolve(opts.answer);
-    answerPdf = await readFile(answerPath);
-  }
-
-  // ========================================
-  // Phase 1: 境界検出
-  // ========================================
-  console.log("\n[Phase 1] 境界検出中...");
-  const boundaries = await detectBoundaries(problemPdf);
-
-  console.log(`  検出された大問: ${boundaries.length}件`);
-  for (const b of boundaries) {
-    console.log(
-      `    ${b.label}: ページ ${b.startPage}${b.startPage !== b.endPage ? `〜${b.endPage}` : ""}`,
-    );
-  }
-
-  // ========================================
-  // Phase 2: 問題の切り出し
-  // ========================================
-  console.log("\n[Phase 2] 問題の切り出し中...");
-  const splits = await splitProblems(problemPdf, boundaries);
-
-  for (const s of splits) {
-    console.log(
-      `  ✓ 大問${s.questionNumber}「${s.label}」: PNG ${formatBytes(s.imagePng.length)}, PDF ${formatBytes(s.pdfBuffer.length)}`,
-    );
-  }
-
-  // ========================================
-  // Phase 3: トピック付け
-  // ========================================
-  console.log("\n[Phase 3] トピック付け中...");
-  const tags = await tagQuestions(splits, opts.subject);
-
-  for (const t of tags) {
-    console.log(`  ✓ 大問${t.questionNumber}「${t.label}」:`);
-    if (t.topicTags.length === 0) {
-      console.log(`    (トピックなし)`);
-    } else {
-      for (const tag of t.topicTags) {
-        console.log(`    - ${tag}`);
-      }
-    }
-  }
-
-  // ========================================
-  // Phase 4: 解答の切り出し
-  // ========================================
-  let answerSplits: AnswerSplitResult[] = [];
-  if (answerPdf) {
-    console.log("\n[Phase 4] 解答の切り出し中...");
-    answerSplits = await splitAnswers(answerPdf, boundaries);
-
-    for (const a of answerSplits) {
-      console.log(
-        `  ✓ 大問${a.questionNumber}「${a.label}」: PDF ${formatBytes(a.pdfBuffer.length)}`,
-      );
-    }
-  } else {
-    console.log("\n[Phase 4] 解答PDFが指定されていないためスキップ");
-  }
-
-  // ========================================
-  // 結果の出力
-  // ========================================
-  if (opts.dryRun) {
-    await handleDryRun(opts, splits, tags, answerSplits);
-  } else {
-    await handleUpload(opts, examType, problemPdf, answerPdf, splits, tags, answerSplits);
-  }
-
-  console.log("\n完了!");
-}
+import type {
+  DetectedQuestion,
+  QuestionBoundary,
+  CliOptions,
+} from "./types.js";
 
 /**
- * dry-run モード: ローカルにファイルを保存
+ * DetectedQuestion[] から QuestionBoundary[] に変換する
+ * Phase 4 (splitAnswers) が従来の QuestionBoundary 形式を必要とするため
  */
-async function handleDryRun(
-  opts: { outDir: string; university: string; year: number; subject: string },
-  splits: Awaited<ReturnType<typeof splitProblems>>,
-  tags: Awaited<ReturnType<typeof tagQuestions>>,
-  answerSplits: AnswerSplitResult[],
-): Promise<void> {
-  console.log("\n[dry-run] ローカルに結果を保存中...");
-
-  const outDir = resolve(opts.outDir);
-  await mkdir(outDir, { recursive: true });
-
-  for (const split of splits) {
-    const prefix = `q${split.questionNumber}`;
-    await writeFile(join(outDir, `${prefix}.png`), split.imagePng);
-    await writeFile(join(outDir, `${prefix}.pdf`), split.pdfBuffer);
-    console.log(`  保存: ${prefix}.png, ${prefix}.pdf`);
-  }
-
-  for (const answer of answerSplits) {
-    const filename = `a${answer.questionNumber}.pdf`;
-    await writeFile(join(outDir, filename), answer.pdfBuffer);
-    console.log(`  保存: ${filename}`);
-  }
-
-  // タグ情報をJSONで保存
-  const tagSummary = tags.map((t) => ({
-    label: t.label,
-    questionNumber: t.questionNumber,
-    topicTags: t.topicTags,
-  }));
-  await writeFile(
-    join(outDir, "tags.json"),
-    JSON.stringify(tagSummary, null, 2),
-  );
-  console.log("  保存: tags.json");
-}
-
-/**
- * 本番モード: R2にアップロード、Supabaseに書き込み
- */
-async function handleUpload(
-  opts: { university: string; year: number; subject: string },
-  examType: ExamType | null,
-  problemPdf: Buffer,
-  answerPdf: Buffer | null,
-  splits: Awaited<ReturnType<typeof splitProblems>>,
-  tags: Awaited<ReturnType<typeof tagQuestions>>,
-  answerSplits: AnswerSplitResult[],
-): Promise<void> {
-  console.log("\n[Upload] R2にアップロード、Supabaseに書き込み中...");
-
-  // 大学レコードを取得/作成
-  const universityId = await upsertUniversity(opts.university);
-  console.log(`  大学ID: ${universityId}`);
-
-  // 問題ドキュメントレコードを作成
-  const safeUniversity = sanitizePathSegment(opts.university);
-  const safeSubject = sanitizePathSegment(opts.subject);
-  const examSegment = examType ?? "general";
-  const problemStoragePath = `${safeUniversity}/${opts.year}/${safeSubject}/${examSegment}/problem.pdf`;
-  await uploadToR2(problemStoragePath, problemPdf, "application/pdf");
-  const problemDocId = await createDocument({
-    universityId,
-    year: opts.year,
-    subject: opts.subject,
-    examType,
-    contentType: "problem",
-    pdfStoragePath: problemStoragePath,
+function toBoundaries(detected: DetectedQuestion[]): QuestionBoundary[] {
+  return detected.map((q) => {
+    const pages = q.regions.map((r) => r.page);
+    return {
+      label: q.label,
+      startPage: Math.min(...pages),
+      endPage: Math.max(...pages),
+    };
   });
-  console.log(`  問題ドキュメントID: ${problemDocId}`);
+}
 
-  // 解答ドキュメントレコードを作成（解答PDFがある場合）
-  let answerDocId: string | null = null;
-  if (answerPdf) {
-    const answerStoragePath = `${safeUniversity}/${opts.year}/${safeSubject}/${examSegment}/answer.pdf`;
-    await uploadToR2(answerStoragePath, answerPdf, "application/pdf");
-    answerDocId = await createDocument({
+async function main(options: CliOptions): Promise<void> {
+  const outDir = options.outDir;
+  if (outDir) {
+    await fs.mkdir(outDir, { recursive: true });
+  }
+
+  // PDF読み込み
+  const problemPdf = Buffer.from(await fs.readFile(options.problem));
+  const answerPdf = Buffer.from(await fs.readFile(options.answer));
+
+  console.log(`問題PDF: ${options.problem} (${(problemPdf.length / 1024).toFixed(0)} KB)`);
+  console.log(`解答PDF: ${options.answer} (${(answerPdf.length / 1024).toFixed(0)} KB)`);
+  console.log(`科目: ${options.subject}  大学: ${options.university}  年度: ${options.year}`);
+  console.log("");
+
+  // Phase 1+2a: 境界検出+座標の一括取得（1回のGemini API呼び出し）
+  console.log("-- Phase 1: 境界検出+座標取得 ---------------------");
+  const detectedQuestions = await detectQuestions(problemPdf);
+  console.log(`  検出された大問: ${detectedQuestions.length}件\n`);
+
+  // Phase 2b: 問題の切り出し（Gemini不使用、画像処理のみ）
+  console.log("-- Phase 2: 問題切り出し -------------------------");
+  const splitResults = await splitProblems(problemPdf, detectedQuestions);
+  console.log(`  切り出し完了: ${splitResults.length}件\n`);
+
+  // Phase 3: トピック付け（切り出し画像 → Gemini Vision）
+  console.log("-- Phase 3: トピック付け -------------------------");
+  const tagResults = await tagQuestions(splitResults, options.subject);
+  console.log(`  タグ付け完了: ${tagResults.length}件\n`);
+
+  // Phase 4: 解答の切り出し
+  console.log("-- Phase 4: 解答切り出し -------------------------");
+  const boundaries = toBoundaries(detectedQuestions);
+  const answerResults = await splitAnswers(answerPdf, boundaries);
+  console.log(`  切り出し完了: ${answerResults.length}件\n`);
+
+  // ローカル出力（--out-dir 指定時のみ）
+  if (outDir) {
+    console.log("-- ローカル出力 ----------------------------------");
+    for (const split of splitResults) {
+      const baseName = `${options.year}_${options.examType}_${options.subject}_Q${split.questionNumber}`;
+      const imgPath = path.join(outDir, `${baseName}.png`);
+      const pdfPath = path.join(outDir, `${baseName}.pdf`);
+
+      await fs.writeFile(imgPath, split.imagePng);
+      await fs.writeFile(pdfPath, split.pdfBuffer);
+      console.log(`  ${split.label}: ${imgPath}, ${pdfPath}`);
+    }
+
+    for (const ans of answerResults) {
+      const baseName = `${options.year}_${options.examType}_${options.subject}_A${ans.questionNumber}`;
+      const pdfPath = path.join(outDir, `${baseName}.pdf`);
+
+      await fs.writeFile(pdfPath, ans.pdfBuffer);
+      console.log(`  ${ans.label} 解答: ${pdfPath}`);
+    }
+
+    const tagsJson = tagResults.map((t) => ({
+      label: t.label,
+      questionNumber: t.questionNumber,
+      topicTags: t.topicTags,
+    }));
+    const tagsPath = path.join(outDir, "tags.json");
+    await fs.writeFile(tagsPath, JSON.stringify(tagsJson, null, 2));
+    console.log(`  タグ: ${tagsPath}\n`);
+  }
+
+  // Phase 5: R2アップロード + Supabase DB書き込み
+  console.log("-- Phase 5: R2アップロード + DB書き込み ------------");
+
+  const { university, year, subject, examType } = options;
+
+  // オリジナルPDFをR2にアップロード
+  const problemOrigKey = originalPdfKey(university, year, subject, examType, "problem");
+  const answerOrigKey = originalPdfKey(university, year, subject, examType, "answer");
+  await Promise.all([
+    uploadToR2(problemOrigKey, problemPdf, "application/pdf"),
+    uploadToR2(answerOrigKey, answerPdf, "application/pdf"),
+  ]);
+  console.log(`  R2: ${problemOrigKey}`);
+  console.log(`  R2: ${answerOrigKey}`);
+
+  // 大問ごとのファイルをR2にアップロード
+  for (const split of splitResults) {
+    const qn = split.questionNumber;
+    const imgKey = problemImageKey(university, year, subject, examType, qn);
+    const pdfKey = problemPdfKey(university, year, subject, examType, qn);
+    await Promise.all([
+      uploadToR2(imgKey, split.imagePng, "image/png"),
+      uploadToR2(pdfKey, split.pdfBuffer, "application/pdf"),
+    ]);
+    console.log(`  R2: ${imgKey}, ${pdfKey}`);
+  }
+
+  for (const ans of answerResults) {
+    const aKey = answerPdfKey(university, year, subject, examType, ans.questionNumber);
+    await uploadToR2(aKey, ans.pdfBuffer, "application/pdf");
+    console.log(`  R2: ${aKey}`);
+  }
+
+  // Supabase DB書き込み
+  const universityId = await upsertUniversity(university);
+  console.log(`  DB: university=${universityId}`);
+
+  const [problemDocId, answerDocId] = await Promise.all([
+    createDocument({
       universityId,
-      year: opts.year,
-      subject: opts.subject,
+      year,
+      subject,
+      examType,
+      contentType: "problem",
+      pdfStoragePath: problemOrigKey,
+    }),
+    createDocument({
+      universityId,
+      year,
+      subject,
       examType,
       contentType: "answer",
-      pdfStoragePath: answerStoragePath,
-    });
-    console.log(`  解答ドキュメントID: ${answerDocId}`);
-  }
+      pdfStoragePath: answerOrigKey,
+    }),
+  ]);
+  console.log(`  DB: problemDoc=${problemDocId}, answerDoc=${answerDocId}`);
 
-  // 各大問のファイルをアップロード、DBに書き込み
-  for (const split of splits) {
+  const boundaryMap = new Map(boundaries.map((b, i) => [i + 1, b]));
+
+  for (const split of splitResults) {
     const qn = split.questionNumber;
+    const tags = tagResults.find((t) => t.questionNumber === qn);
+    const boundary = boundaryMap.get(qn);
 
-    // 問題画像をR2にアップロード
-    const imgKey = problemImageKey(
-      safeUniversity,
-      opts.year,
-      safeSubject,
-      examSegment,
-      qn,
-    );
-    await uploadToR2(imgKey, split.imagePng, "image/png");
-
-    // 問題PDFをR2にアップロード
-    const pdfKey = problemPdfKey(
-      safeUniversity,
-      opts.year,
-      safeSubject,
-      examSegment,
-      qn,
-    );
-    await uploadToR2(pdfKey, split.pdfBuffer, "application/pdf");
-
-    // 解答PDFをR2にアップロード
-    let answerPdfPath = "";
-    const answerSplit = answerSplits.find((a) => a.questionNumber === qn);
-    if (answerSplit) {
-      const aKey = answerPdfKey(
-        safeUniversity,
-        opts.year,
-        safeSubject,
-        examSegment,
-        qn,
-      );
-      await uploadToR2(aKey, answerSplit.pdfBuffer, "application/pdf");
-      answerPdfPath = aKey;
-    }
-
-    // タグを取得
-    const tagResult = tags.find((t) => t.questionNumber === qn);
-    const topicTags = tagResult?.topicTags ?? [];
-
-    // 境界情報を取得
-    const boundary = splits[qn - 1];
-    if (boundary.regions.length === 0) {
-      throw new Error(
-        `Could not determine page range for question ${qn} ("${split.label}"). Regions array is empty.`,
-      );
-    }
-
-    // DBに書き込み
     const questionId = await createQuestion({
       documentId: problemDocId,
       questionNumber: qn,
       questionLabel: split.label,
-      startPage: boundary.regions[0].page,
-      endPage: boundary.regions[boundary.regions.length - 1].page,
-      topicTags,
-      splitPdfPath: pdfKey,
-      splitImagePath: imgKey,
-      answerSplitPdfPath: answerPdfPath,
+      startPage: boundary?.startPage ?? 1,
+      endPage: boundary?.endPage ?? 1,
+      topicTags: tags?.topicTags ?? [],
+      splitPdfPath: problemPdfKey(university, year, subject, examType, qn),
+      splitImagePath: problemImageKey(university, year, subject, examType, qn),
+      answerSplitPdfPath: answerPdfKey(university, year, subject, examType, qn),
     });
-
-    console.log(`  ✓ 大問${qn}「${split.label}」を保存 (ID: ${questionId})`);
+    console.log(`  DB: Q${qn} ${split.label} → ${questionId}`);
   }
+
+  console.log("\n完了");
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+// CLI引数パース（commander 導入まではシンプルな実装）
+const args = process.argv.slice(2);
+function getArg(name: string): string | undefined {
+  const idx = args.indexOf(`--${name}`);
+  return idx !== -1 ? args[idx + 1] : undefined;
 }
+
+const problem = getArg("problem");
+const answer = getArg("answer");
+const subject = getArg("subject");
+const university = getArg("university");
+const year = getArg("year");
+const examType = getArg("exam-type");
+
+if (!problem || !answer || !subject || !university || !year || !examType) {
+  console.error(
+    "Usage: npx kakomon-generate --problem <pdf> --answer <pdf> --subject <subject> --university <name> --year <year> --exam-type <type>",
+  );
+  process.exit(1);
+}
+
+main({
+  problem,
+  answer,
+  subject,
+  university,
+  year: Number(year),
+  examType: examType as CliOptions["examType"],
+  outDir: getArg("out-dir"),
+}).catch((err) => {
+  console.error("エラー:", err);
+  process.exit(1);
+});

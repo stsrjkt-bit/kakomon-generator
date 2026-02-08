@@ -8,7 +8,7 @@ export interface CliOptions {
   subject: string;
   university: string;
   year: number;
-  examType?: ExamType;
+  examType: ExamType;
   outDir?: string;
 }
 
@@ -28,6 +28,24 @@ export interface BBox {
   y: number;
   width: number;
   height: number;
+}
+
+/** 割合ベースのページ内領域（0.0〜1.0） */
+export interface RegionRatio {
+  /** ページ番号（1始まり） */
+  page: number;
+  y_start_ratio: number;
+  y_end_ratio: number;
+  x_start_ratio: number;
+  x_end_ratio: number;
+}
+
+/** Phase1+2統合: 大問の検出結果（境界情報+各ページの座標を一括で返す） */
+export interface DetectedQuestion {
+  /** 大問ラベル（例: "第1問", "問1"） */
+  label: string;
+  /** 各ページでの領域（複数ページにまたがる大問は複数要素） */
+  regions: RegionRatio[];
 }
 
 /** Phase2: 1ページ内の大問領域 */
@@ -86,7 +104,7 @@ export interface DbDocument {
   university_id: string;
   year: number;
   subject: string;
-  exam_type: ExamType | null;
+  exam_type: ExamType;
   content_type: "problem" | "answer";
   pdf_storage_path: string;
 }
