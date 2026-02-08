@@ -1,125 +1,62 @@
-import { askVisionWithPdf } from "../lib/gemini.js";
-import type { QuestionBoundary } from "../types.js";
-
 /**
- * Phase 1: 境界検出
+ * Phase 1+2 統合: 境界検出 + 領域座標の一括取得
  *
- * 問題PDF全体をバイナリのまま Gemini Vision に渡し、
- * 大問ごとの { label, startPage, endPage } を検出する。
+ * 問題PDFをまるごとGemini Visionに1回渡して、
+ * 各大問のラベルと全ページにわたる領域座標（割合ベース）を一括取得する。
+ *
+ * GeminiにはPDFバイナリを直接渡す。画像に変換して渡すことは絶対にしない。
  */
-export async function detectBoundaries(
-  pdfBuffer: Buffer,
-): Promise<QuestionBoundary[]> {
-  const prompt = `あなたは日本の大学入試の問題PDFを分析するアシスタントです。
-このPDFに含まれる大問（独立した問題のまとまり）を検出してください。
 
-大問のラベルパターンは以下のようなものがあります：
-- 「第1問」「第2問」…
-- 「問1」「問2」…
-- 「[1]」「[2]」…
-- 「1.」「2.」…
-- 「Ⅰ」「Ⅱ」「Ⅲ」…
-- 「I」「II」「III」…
-- 「1」「2」「3」…（大きい番号のみ）
-
-注意事項：
-- 大問の中の小問（(1), (2), (a), (b) など）は独立した大問として数えないでください
-- 各大問が何ページ目から何ページ目にまたがっているかを特定してください
-- ページ番号は1始まりです
-- 複数ページにまたがる大問もあります（例: 第1問が1ページ目から2ページ目まで）
-
-以下のJSON形式で出力してください。JSONのみを出力し、説明は不要です：
-[
-  { "label": "第1問", "start_page": 1, "end_page": 1 },
-  { "label": "第2問", "start_page": 2, "end_page": 3 }
-]`;
-
-  const response = await callWithRetry(() =>
-    askVisionWithPdf(prompt, pdfBuffer),
-  );
-
-  return parseBoundaryResponse(response);
-}
+import { askVisionWithPdf, callWithRetry, extractJson } from "../lib/gemini.js";
+import { ThinkingLevel } from "@google/genai";
+import type { DetectedQuestion } from "../types.js";
 
 /**
- * Gemini のレスポンスを QuestionBoundary[] にパースする
+ * 問題PDFから全大問の境界と領域座標を一括検出する
+ *
+ * 1回の askVisionWithPdf 呼び出しで、各大問のラベルと
+ * 各ページでの座標（割合ベース 0.0〜1.0）を取得する。
  */
-function parseBoundaryResponse(response: string): QuestionBoundary[] {
-  // JSON部分を抽出（コードブロックで囲まれている場合にも対応）
-  const jsonMatch = response.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
-    throw new Error(
-      `Failed to parse boundary detection response: no JSON array found.\nResponse: ${response}`,
+export async function detectQuestions(
+  problemPdfBuffer: Buffer,
+): Promise<DetectedQuestion[]> {
+  const prompt = `この大学入試の問題PDFを見て、各大問の位置を検出してください。
+
+各大問について、以下の情報をJSON配列で返してください:
+- label: 大問のラベル（PDFに記載されている通り。例: "第1問", "問1", "1" など）
+- regions: その大問が記載されている領域の配列。各要素は以下のフィールドを持つ:
+  - page: ページ番号（1始まり）
+  - y_start_ratio: 領域の上端の位置（ページ上端を0.0、下端を1.0とした割合）
+  - y_end_ratio: 領域の下端の位置（同上）
+  - x_start_ratio: 領域の左端の位置（ページ左端を0.0、右端を1.0とした割合）
+  - x_end_ratio: 領域の右端の位置（同上）
+
+注意:
+- 1つの大問が複数ページにまたがる場合は、regionsにページごとの要素を追加してください。
+- 割合は0.0〜1.0の範囲で、小数点以下2桁程度の精度で返してください。
+- ヘッダー・フッター・ページ番号は含めないでください。
+- 大問の本文・小問・図・表をすべて含む領域を指定してください。
+- JSON配列のみを返してください。マークダウンのコードブロックは不要です。
+
+例:
+[{"label":"第1問","regions":[{"page":1,"y_start_ratio":0.05,"y_end_ratio":0.48,"x_start_ratio":0.02,"x_end_ratio":0.98}]},{"label":"第2問","regions":[{"page":1,"y_start_ratio":0.52,"y_end_ratio":1.0,"x_start_ratio":0.02,"x_end_ratio":0.98},{"page":2,"y_start_ratio":0.0,"y_end_ratio":0.65,"x_start_ratio":0.02,"x_end_ratio":0.98}]}]`;
+
+  console.log(
+    `  📄 問題PDF (${(problemPdfBuffer.length / 1024).toFixed(0)} KB) をGeminiに送信して大問の境界+座標を一括検出中...`,
+  );
+
+  const raw = await callWithRetry(() =>
+    askVisionWithPdf(prompt, problemPdfBuffer, ThinkingLevel.HIGH),
+  );
+
+  const parsed: DetectedQuestion[] = extractJson(raw);
+
+  for (const q of parsed) {
+    const pages = q.regions.map((r) => r.page);
+    console.log(
+      `  📌 ${q.label}: ${q.regions.length}領域 (p${Math.min(...pages)}-${Math.max(...pages)})`,
     );
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch {
-    throw new Error(
-      `Failed to parse boundary detection response: invalid JSON.\nResponse: ${response}`,
-    );
-  }
-  if (!Array.isArray(parsed)) {
-    throw new Error("Boundary detection response is not an array");
-  }
-
-  const boundaries: QuestionBoundary[] = parsed.map(
-    (item: Record<string, unknown>, index: number) => {
-      const label = item.label as string;
-      const startPage = item.start_page as number;
-      const endPage = item.end_page as number;
-
-      if (!label || typeof startPage !== "number" || typeof endPage !== "number") {
-        throw new Error(
-          `Invalid boundary at index ${index}: ${JSON.stringify(item)}`,
-        );
-      }
-      if (startPage < 1 || endPage < startPage) {
-        throw new Error(
-          `Invalid page range at index ${index}: start=${startPage}, end=${endPage}`,
-        );
-      }
-
-      return { label, startPage, endPage };
-    },
-  );
-
-  if (boundaries.length === 0) {
-    throw new Error("No question boundaries detected");
-  }
-
-  return boundaries;
-}
-
-/**
- * 429エラー（レートリミット）に対してexponential backoffでリトライする
- */
-export async function callWithRetry<T>(
-  fn: () => Promise<T>,
-  maxRetries: number = 5,
-): Promise<T> {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error: unknown) {
-      const isRateLimit =
-        error instanceof Error &&
-        (error.message.includes("429") ||
-          error.message.includes("RESOURCE_EXHAUSTED") ||
-          error.message.includes("rate limit"));
-
-      if (!isRateLimit || attempt === maxRetries) {
-        throw error;
-      }
-
-      const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s, 8s, 16s
-      console.warn(
-        `  Rate limited (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay / 1000}s...`,
-      );
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
-  }
-  throw new Error("Unreachable");
+  return parsed;
 }
