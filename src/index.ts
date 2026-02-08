@@ -21,6 +21,7 @@ import {
   problemImageKey,
   problemPdfKey,
   answerPdfKey,
+  resolveSubjectKey,
 } from "./lib/r2.js";
 import {
   upsertUniversity,
@@ -120,9 +121,14 @@ async function main(options: CliOptions): Promise<void> {
 
   const { university, year, subject, examType } = options;
 
+  // 大学ID・科目キーをASCIIに解決
+  const universityId = await upsertUniversity(university);
+  const subjectKey = resolveSubjectKey(subject);
+  console.log(`  大学ID: ${universityId}, 科目キー: ${subjectKey}`);
+
   // オリジナルPDFをR2にアップロード
-  const problemOrigKey = originalPdfKey(university, year, subject, examType, "problem");
-  const answerOrigKey = originalPdfKey(university, year, subject, examType, "answer");
+  const problemOrigKey = originalPdfKey(universityId, year, subjectKey, examType, "problem");
+  const answerOrigKey = originalPdfKey(universityId, year, subjectKey, examType, "answer");
   await Promise.all([
     uploadToR2(problemOrigKey, problemPdf, "application/pdf"),
     uploadToR2(answerOrigKey, answerPdf, "application/pdf"),
@@ -133,8 +139,8 @@ async function main(options: CliOptions): Promise<void> {
   // 大問ごとのファイルをR2にアップロード
   for (const split of splitResults) {
     const qn = split.questionNumber;
-    const imgKey = problemImageKey(university, year, subject, examType, qn);
-    const pdfKey = problemPdfKey(university, year, subject, examType, qn);
+    const imgKey = problemImageKey(universityId, year, subjectKey, examType, qn);
+    const pdfKey = problemPdfKey(universityId, year, subjectKey, examType, qn);
     await Promise.all([
       uploadToR2(imgKey, split.imagePng, "image/png"),
       uploadToR2(pdfKey, split.pdfBuffer, "application/pdf"),
@@ -143,13 +149,11 @@ async function main(options: CliOptions): Promise<void> {
   }
 
   for (const ans of answerResults) {
-    const aKey = answerPdfKey(university, year, subject, examType, ans.questionNumber);
+    const aKey = answerPdfKey(universityId, year, subjectKey, examType, ans.questionNumber);
     await uploadToR2(aKey, ans.pdfBuffer, "application/pdf");
     console.log(`  R2: ${aKey}`);
   }
 
-  // Supabase DB書き込み
-  const universityId = await upsertUniversity(university);
   console.log(`  DB: university=${universityId}`);
 
   const [problemDocId, answerDocId] = await Promise.all([
@@ -186,9 +190,9 @@ async function main(options: CliOptions): Promise<void> {
       startPage: boundary?.startPage ?? 1,
       endPage: boundary?.endPage ?? 1,
       topicTags: tags?.topicTags ?? [],
-      splitPdfPath: problemPdfKey(university, year, subject, examType, qn),
-      splitImagePath: problemImageKey(university, year, subject, examType, qn),
-      answerSplitPdfPath: answerPdfKey(university, year, subject, examType, qn),
+      splitPdfPath: problemPdfKey(universityId, year, subjectKey, examType, qn),
+      splitImagePath: problemImageKey(universityId, year, subjectKey, examType, qn),
+      answerSplitPdfPath: answerPdfKey(universityId, year, subjectKey, examType, qn),
     });
     console.log(`  DB: Q${qn} ${split.label} → ${questionId}`);
   }
