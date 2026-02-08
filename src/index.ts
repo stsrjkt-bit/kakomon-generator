@@ -29,6 +29,7 @@ import {
   createQuestion,
 } from "./lib/supabase.js";
 import type {
+  AnswerSplitResult,
   DetectedQuestion,
   QuestionBoundary,
   CliOptions,
@@ -57,10 +58,16 @@ async function main(options: CliOptions): Promise<void> {
 
   // PDF読み込み
   const problemPdf = Buffer.from(await fs.readFile(options.problem));
-  const answerPdf = Buffer.from(await fs.readFile(options.answer));
+  const answerPdf = options.answer
+    ? Buffer.from(await fs.readFile(options.answer))
+    : undefined;
 
   console.log(`問題PDF: ${options.problem} (${(problemPdf.length / 1024).toFixed(0)} KB)`);
-  console.log(`解答PDF: ${options.answer} (${(answerPdf.length / 1024).toFixed(0)} KB)`);
+  if (answerPdf) {
+    console.log(`解答PDF: ${options.answer} (${(answerPdf.length / 1024).toFixed(0)} KB)`);
+  } else {
+    console.log("解答PDF: なし（スキップ）");
+  }
   console.log(`科目: ${options.subject}  大学: ${options.university}  年度: ${options.year}`);
   console.log("");
 
@@ -79,11 +86,16 @@ async function main(options: CliOptions): Promise<void> {
   const tagResults = await tagQuestions(splitResults, options.subject);
   console.log(`  タグ付け完了: ${tagResults.length}件\n`);
 
-  // Phase 4: 解答の切り出し
-  console.log("-- Phase 4: 解答切り出し -------------------------");
+  // Phase 4: 解答の切り出し（解答PDFがある場合のみ）
   const boundaries = toBoundaries(detectedQuestions);
-  const answerResults = await splitAnswers(answerPdf, boundaries);
-  console.log(`  切り出し完了: ${answerResults.length}件\n`);
+  let answerResults: AnswerSplitResult[] = [];
+  if (answerPdf) {
+    console.log("-- Phase 4: 解答切り出し -------------------------");
+    answerResults = await splitAnswers(answerPdf, boundaries);
+    console.log(`  切り出し完了: ${answerResults.length}件\n`);
+  } else {
+    console.log("-- Phase 4: 解答切り出し（スキップ: 解答PDFなし） --\n");
+  }
 
   // ローカル出力（--out-dir 指定時のみ）
   if (outDir) {
@@ -98,12 +110,14 @@ async function main(options: CliOptions): Promise<void> {
       console.log(`  ${split.label}: ${imgPath}, ${pdfPath}`);
     }
 
-    for (const ans of answerResults) {
-      const baseName = `${options.year}_${options.examType}_${options.subject}_A${ans.questionNumber}`;
-      const pdfPath = path.join(outDir, `${baseName}.pdf`);
+    if (answerResults.length > 0) {
+      for (const ans of answerResults) {
+        const baseName = `${options.year}_${options.examType}_${options.subject}_A${ans.questionNumber}`;
+        const pdfPath = path.join(outDir, `${baseName}.pdf`);
 
-      await fs.writeFile(pdfPath, ans.pdfBuffer);
-      console.log(`  ${ans.label} 解答: ${pdfPath}`);
+        await fs.writeFile(pdfPath, ans.pdfBuffer);
+        console.log(`  ${ans.label} 解答: ${pdfPath}`);
+      }
     }
 
     const tagsJson = tagResults.map((t) => ({
@@ -128,13 +142,16 @@ async function main(options: CliOptions): Promise<void> {
 
   // オリジナルPDFをR2にアップロード
   const problemOrigKey = originalPdfKey(universityId, year, subjectKey, examType, "problem");
-  const answerOrigKey = originalPdfKey(universityId, year, subjectKey, examType, "answer");
-  await Promise.all([
-    uploadToR2(problemOrigKey, problemPdf, "application/pdf"),
-    uploadToR2(answerOrigKey, answerPdf, "application/pdf"),
-  ]);
+  const uploadPromises: Promise<unknown>[] = [uploadToR2(problemOrigKey, problemPdf, "application/pdf")];
   console.log(`  R2: ${problemOrigKey}`);
-  console.log(`  R2: ${answerOrigKey}`);
+
+  let answerOrigKey: string | undefined;
+  if (answerPdf) {
+    answerOrigKey = originalPdfKey(universityId, year, subjectKey, examType, "answer");
+    uploadPromises.push(uploadToR2(answerOrigKey, answerPdf, "application/pdf"));
+    console.log(`  R2: ${answerOrigKey}`);
+  }
+  await Promise.all(uploadPromises);
 
   // 大問ごとのファイルをR2にアップロード
   for (const split of splitResults) {
@@ -148,15 +165,17 @@ async function main(options: CliOptions): Promise<void> {
     console.log(`  R2: ${imgKey}, ${pdfKey}`);
   }
 
-  for (const ans of answerResults) {
-    const aKey = answerPdfKey(universityId, year, subjectKey, examType, ans.questionNumber);
-    await uploadToR2(aKey, ans.pdfBuffer, "application/pdf");
-    console.log(`  R2: ${aKey}`);
+  if (answerResults.length > 0) {
+    for (const ans of answerResults) {
+      const aKey = answerPdfKey(universityId, year, subjectKey, examType, ans.questionNumber);
+      await uploadToR2(aKey, ans.pdfBuffer, "application/pdf");
+      console.log(`  R2: ${aKey}`);
+    }
   }
 
   console.log(`  DB: university=${universityId}`);
 
-  const [problemDocId, answerDocId] = await Promise.all([
+  const docPromises: Promise<string>[] = [
     createDocument({
       universityId,
       year,
@@ -165,16 +184,21 @@ async function main(options: CliOptions): Promise<void> {
       contentType: "problem",
       pdfStoragePath: problemOrigKey,
     }),
-    createDocument({
-      universityId,
-      year,
-      subject,
-      examType,
-      contentType: "answer",
-      pdfStoragePath: answerOrigKey,
-    }),
-  ]);
-  console.log(`  DB: problemDoc=${problemDocId}, answerDoc=${answerDocId}`);
+  ];
+  if (answerOrigKey) {
+    docPromises.push(
+      createDocument({
+        universityId,
+        year,
+        subject,
+        examType,
+        contentType: "answer",
+        pdfStoragePath: answerOrigKey,
+      }),
+    );
+  }
+  const [problemDocId, answerDocId] = await Promise.all(docPromises);
+  console.log(`  DB: problemDoc=${problemDocId}${answerDocId ? `, answerDoc=${answerDocId}` : ""}`);
 
   const boundaryMap = new Map(boundaries.map((b, i) => [i + 1, b]));
 
@@ -183,6 +207,7 @@ async function main(options: CliOptions): Promise<void> {
     const tags = tagResults.find((t) => t.questionNumber === qn);
     const boundary = boundaryMap.get(qn);
 
+    const hasAnswer = answerResults.some((a) => a.questionNumber === qn);
     const questionId = await createQuestion({
       documentId: problemDocId,
       questionNumber: qn,
@@ -192,7 +217,9 @@ async function main(options: CliOptions): Promise<void> {
       topicTags: tags?.topicTags ?? [],
       splitPdfPath: problemPdfKey(universityId, year, subjectKey, examType, qn),
       splitImagePath: problemImageKey(universityId, year, subjectKey, examType, qn),
-      answerSplitPdfPath: answerPdfKey(universityId, year, subjectKey, examType, qn),
+      answerSplitPdfPath: hasAnswer
+        ? answerPdfKey(universityId, year, subjectKey, examType, qn)
+        : null,
     });
     console.log(`  DB: Q${qn} ${split.label} → ${questionId}`);
   }
@@ -214,16 +241,16 @@ const university = getArg("university");
 const year = getArg("year");
 const examType = getArg("exam-type");
 
-if (!problem || !answer || !subject || !university || !year || !examType) {
+if (!problem || !subject || !university || !year || !examType) {
   console.error(
-    "Usage: npx kakomon-generate --problem <pdf> --answer <pdf> --subject <subject> --university <name> --year <year> --exam-type <type>",
+    "Usage: npx kakomon-generate --problem <pdf> [--answer <pdf>] --subject <subject> --university <name> --year <year> --exam-type <type>",
   );
   process.exit(1);
 }
 
 main({
   problem,
-  answer,
+  answer: answer || undefined,
   subject,
   university,
   year: Number(year),

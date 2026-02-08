@@ -109,7 +109,7 @@ export async function createQuestion(params: {
   topicTags: string[];
   splitPdfPath: string;
   splitImagePath: string;
-  answerSplitPdfPath: string;
+  answerSplitPdfPath: string | null;
 }): Promise<string> {
   const supabase = getSupabaseClient();
 

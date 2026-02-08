@@ -4,7 +4,7 @@ export type ExamType = "zenki" | "kouki" | "center" | "kyotsu";
 /** CLIオプション */
 export interface CliOptions {
   problem: string;
-  answer: string;
+  answer?: string;
   subject: string;
   university: string;
   year: number;
