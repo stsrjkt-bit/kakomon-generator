@@ -1,144 +1,194 @@
-import { askVisionWithImage } from "../lib/gemini.js";
-import { TOPIC_MASTER, getTopicsForSubject, isValidTopic } from "../constants/topic-master.js";
-import { callWithRetry } from "./detect.js";
+/**
+ * Phase 3: トピック付け
+ *
+ * 切り出した大問画像(PNG)をGemini Visionに送り、
+ * マスターリストに存在する5階層トピックタグを付与する。
+ *
+ * 大問単体の画像を見せて判定する（全体PDFからではない）。
+ * thinkingLevel は指定しない（デフォルト）。
+ *
+ * Explicit Context Caching を使い、マスターリスト+共通プロンプトを
+ * キャッシュして入力トークンコストを削減する。
+ */
+
+import { askVisionWithImage, callWithRetry, extractJson, client } from "../lib/gemini.js";
+import {
+  getTopicsForSubject,
+  isValidTopic,
+} from "../constants/topic-master.js";
 import type { SplitResult, TagResult } from "../types.js";
 
-/** マスターリストに存在する科目一覧を取得する */
-function getValidSubjects(): Set<string> {
-  const subjects = new Set<string>();
-  for (const topic of TOPIC_MASTER) {
-    const slash = topic.indexOf("/");
-    if (slash > 0) {
-      subjects.add(topic.slice(0, slash));
-    }
+const modelName = process.env.GEMINI_VISION_MODEL ?? "gemini-3-flash-preview";
+
+/**
+ * マスターリスト用のシステムインストラクション（キャッシュ対象）を構築する
+ */
+function buildCachedInstruction(subject: string, topicListStr: string): string {
+  return `あなたは大学入試の${subject}の問題を分析し、トピックタグを付与する専門家です。
+
+【重要なルール】
+- 以下のマスターリストに存在するパスのみを使用してください（5階層固定: 科目/分野/単元/サブ単元/トピック）
+- マスターリストにないパスは絶対に使わないでください
+- 複数のトピックにまたがる場合は複数返してください
+- JSON配列のみを返してください。マークダウンのコードブロックは不要です。
+
+【マスターリスト】
+${topicListStr}
+
+例: ["${subject}/分野A/単元A/サブ単元A/トピックA","${subject}/分野B/単元B/サブ単元B/トピックB"]`;
+}
+
+/**
+ * 1つの大問画像に対してトピックタグを付与する
+ */
+async function tagSingleQuestion(
+  imagePng: Buffer,
+  label: string,
+  subject: string,
+  cachedContentName?: string,
+  topicList?: string[],
+): Promise<string[]> {
+  // キャッシュ使用時はシンプルなプロンプト、未使用時はフルプロンプト
+  let prompt: string;
+  if (cachedContentName) {
+    prompt = `この画像は大学入試の${subject}の問題から「${label}」を切り出したものです。この問題の出題分野のトピックタグをJSON配列で返してください。`;
+  } else {
+    const topicListStr = (topicList ?? []).join("\n");
+    prompt = `この画像は大学入試の${subject}の問題から「${label}」を切り出したものです。
+この問題の出題分野のトピックタグを付けてください。
+
+【重要なルール】
+- 以下のマスターリストに存在するパスのみを使用してください（5階層固定: 科目/分野/単元/サブ単元/トピック）
+- マスターリストにないパスは絶対に使わないでください
+- 複数のトピックにまたがる場合は複数返してください
+
+【マスターリスト】
+${topicListStr}
+
+JSON配列のみを返してください。マークダウンのコードブロックは不要です。
+
+例: ["${subject}/分野A/単元A/サブ単元A/トピックA","${subject}/分野B/単元B/サブ単元B/トピックB"]`;
   }
-  return subjects;
+
+  const raw = await callWithRetry(() =>
+    askVisionWithImage(prompt, imagePng, "image/png", cachedContentName),
+  );
+
+  let tags: string[];
+  try {
+    tags = extractJson(raw);
+  } catch {
+    console.warn(`  ⚠ ${label} のタグパースに失敗: ${raw.slice(0, 200)}`);
+    return [];
+  }
+
+  // マスターリストに存在するパスのみを残す
+  const validTags = tags.filter((t) => isValidTopic(t));
+  const rejected = tags.length - validTags.length;
+  if (rejected > 0) {
+    const invalidTags = tags.filter((t) => !isValidTopic(t));
+    console.warn(
+      `  ⚠ ${label}: ${rejected}件のタグをマスターリスト照合で除外: ${invalidTags.join(", ")}`,
+    );
+  }
+
+  return validTags;
 }
 
 /**
  * Phase 3: トピック付け
  *
- * 切り出した問題画像(PNG) を Gemini Vision に渡し、
- * topic-master.ts のマスターリストに存在する5階層トピックタグを付与する。
+ * 切り出し済みの大問画像群に対してトピックタグを付与する。
+ * Explicit Context Caching でマスターリストをキャッシュし、
+ * 入力トークンコストを削減する。
  */
 export async function tagQuestions(
   splits: SplitResult[],
   subject: string,
 ): Promise<TagResult[]> {
-  // 科目名をマスターリストに対してバリデーション
-  const validSubjects = getValidSubjects();
-  if (!validSubjects.has(subject)) {
+  const topicList = getTopicsForSubject(subject);
+  if (topicList.length === 0) {
+    console.warn(`  ⚠ 科目「${subject}」のトピックがマスターリストに見つかりません`);
+    return splits.map((s) => ({
+      label: s.label,
+      questionNumber: s.questionNumber,
+      topicTags: [],
+    }));
+  }
+
+  console.log(
+    `  🏷️  ${splits.length}個の大問にトピックタグを付与中（${subject}: ${topicList.length}トピック）...`,
+  );
+
+  // Explicit Context Caching: マスターリスト+共通プロンプトをキャッシュ
+  let cachedContentName: string | undefined;
+  try {
+    const systemInstruction = buildCachedInstruction(
+      subject,
+      topicList.join("\n"),
+    );
+
+    console.log("  📦 マスターリストをContext Cacheに登録中...");
+    const cached = await client.caches.create({
+      model: modelName,
+      config: {
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: systemInstruction }],
+          },
+        ],
+        tools: [{ codeExecution: {} }],
+        ttl: "300s",
+        displayName: `kakomon-topics-${subject}`,
+      },
+    });
+    cachedContentName = cached.name;
+    console.log(
+      `  📦 キャッシュ作成完了: ${cachedContentName} (${cached.usageMetadata?.totalTokenCount ?? "?"} tokens)`,
+    );
+  } catch (err) {
     console.warn(
-      `  警告: 科目「${subject}」はマスターリストに存在しません。有効な科目: ${[...validSubjects].join(", ")}`,
+      `  ⚠ Context Cache作成に失敗、キャッシュなしで続行: ${err instanceof Error ? err.message : err}`,
     );
   }
 
-  const subjectTopics = getTopicsForSubject(subject);
+  try {
+    const results: TagResult[] = [];
 
-  if (subjectTopics.length === 0) {
-    console.warn(`  警告: 科目「${subject}」のトピックがマスターリストに見つかりません`);
-  }
-
-  const results = await Promise.all(
-    splits.map(async (split) => {
-      console.log(
-        `  [Phase 3] 大問${split.questionNumber}「${split.label}」にトピックを付与中...`,
+    for (const split of splits) {
+      console.log(`  🏷️  ${split.label} タグ付け中...`);
+      const topicTags = await tagSingleQuestion(
+        split.imagePng,
+        split.label,
+        subject,
+        cachedContentName,
+        topicList,
       );
 
-      const tags = await detectTopics(split.imagePng, subject, subjectTopics);
-
-      return {
+      results.push({
         label: split.label,
         questionNumber: split.questionNumber,
-        topicTags: tags,
-      };
-    }),
-  );
+        topicTags,
+      });
 
-  return results;
-}
+      console.log(
+        `  🏷️  ${split.label}: ${topicTags.length}件のタグを付与`,
+      );
+    }
 
-/**
- * 問題画像からトピックタグを検出する
- */
-async function detectTopics(
-  imagePng: Buffer,
-  subject: string,
-  subjectTopics: string[],
-): Promise<string[]> {
-  // マスターリストが大きすぎる場合は分割して渡す
-  // Geminiのコンテキストに収まるよう、科目のトピック一覧のみを渡す
-  const topicList = subjectTopics.join("\n");
-
-  const prompt = `あなたは日本の大学入試問題の分類専門家です。
-以下の問題画像を見て、この問題が扱っているトピックを特定してください。
-
-## 制約
-- トピックは必ず以下のマスターリストから選んでください
-- マスターリストにないトピックは絶対に出力しないでください
-- 各トピックは5階層（科目/分野/単元/サブ単元/トピック）の形式です
-- 1つの大問に複数のトピックが含まれる場合は全て列挙してください
-- 科目は「${subject}」です
-
-## マスターリスト（${subject}）
-${topicList}
-
-## 出力形式
-以下のJSON配列形式で出力してください。JSONのみを出力し、説明は不要です：
-["${subject}/分野/単元/サブ単元/トピック1", "${subject}/分野/単元/サブ単元/トピック2"]`;
-
-  const response = await callWithRetry(() =>
-    askVisionWithImage(prompt, imagePng),
-  );
-
-  return parseAndValidateTopics(response);
-}
-
-/**
- * トピックレスポンスをパースし、マスターリストに存在するもののみ返す
- */
-function parseAndValidateTopics(response: string): string[] {
-  const jsonMatch = response.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
-    console.warn(
-      `  警告: トピックレスポンスからJSON配列を抽出できませんでした。空のタグリストを返します。`,
-    );
-    return [];
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch {
-    console.warn(
-      `  警告: トピックレスポンスのJSONパースに失敗しました。空のタグリストを返します。`,
-    );
-    return [];
-  }
-
-  if (!Array.isArray(parsed)) {
-    console.warn(`  警告: トピックレスポンスが配列ではありません。空のタグリストを返します。`);
-    return [];
-  }
-
-  const validTopics: string[] = [];
-  const invalidTopics: string[] = [];
-
-  for (const topic of parsed) {
-    if (typeof topic !== "string") continue;
-
-    if (isValidTopic(topic)) {
-      validTopics.push(topic);
-    } else {
-      invalidTopics.push(topic);
+    return results;
+  } finally {
+    // キャッシュの削除（エラー時にも必ず実行）
+    if (cachedContentName) {
+      try {
+        await client.caches.delete({ name: cachedContentName });
+        console.log("  📦 Context Cache削除完了");
+      } catch (err) {
+        console.warn(
+          `  ⚠ Context Cache削除に失敗: ${err instanceof Error ? err.message : err}`,
+        );
+      }
     }
   }
-
-  if (invalidTopics.length > 0) {
-    console.warn(
-      `  警告: マスターリストに存在しないトピックを除外しました: ${invalidTopics.join(", ")}`,
-    );
-  }
-
-  return validTopics;
 }
