@@ -29,6 +29,7 @@ import {
   createQuestion,
 } from "./lib/supabase.js";
 import type {
+  AnswerSplitResult,
   DetectedQuestion,
   QuestionBoundary,
   CliOptions,
@@ -87,7 +88,7 @@ async function main(options: CliOptions): Promise<void> {
 
   // Phase 4: 解答の切り出し（解答PDFがある場合のみ）
   const boundaries = toBoundaries(detectedQuestions);
-  let answerResults: import("./types.js").AnswerSplitResult[] = [];
+  let answerResults: AnswerSplitResult[] = [];
   if (answerPdf) {
     console.log("-- Phase 4: 解答切り出し -------------------------");
     answerResults = await splitAnswers(answerPdf, boundaries);
@@ -141,15 +142,16 @@ async function main(options: CliOptions): Promise<void> {
 
   // オリジナルPDFをR2にアップロード
   const problemOrigKey = originalPdfKey(universityId, year, subjectKey, examType, "problem");
-  await uploadToR2(problemOrigKey, problemPdf, "application/pdf");
+  const uploadPromises: Promise<unknown>[] = [uploadToR2(problemOrigKey, problemPdf, "application/pdf")];
   console.log(`  R2: ${problemOrigKey}`);
 
   let answerOrigKey: string | undefined;
   if (answerPdf) {
     answerOrigKey = originalPdfKey(universityId, year, subjectKey, examType, "answer");
-    await uploadToR2(answerOrigKey, answerPdf, "application/pdf");
+    uploadPromises.push(uploadToR2(answerOrigKey, answerPdf, "application/pdf"));
     console.log(`  R2: ${answerOrigKey}`);
   }
+  await Promise.all(uploadPromises);
 
   // 大問ごとのファイルをR2にアップロード
   for (const split of splitResults) {
@@ -173,26 +175,29 @@ async function main(options: CliOptions): Promise<void> {
 
   console.log(`  DB: university=${universityId}`);
 
-  const problemDocId = await createDocument({
-    universityId,
-    year,
-    subject,
-    examType,
-    contentType: "problem",
-    pdfStoragePath: problemOrigKey,
-  });
-
-  let answerDocId: string | undefined;
-  if (answerOrigKey) {
-    answerDocId = await createDocument({
+  const docPromises: Promise<string>[] = [
+    createDocument({
       universityId,
       year,
       subject,
       examType,
-      contentType: "answer",
-      pdfStoragePath: answerOrigKey,
-    });
+      contentType: "problem",
+      pdfStoragePath: problemOrigKey,
+    }),
+  ];
+  if (answerOrigKey) {
+    docPromises.push(
+      createDocument({
+        universityId,
+        year,
+        subject,
+        examType,
+        contentType: "answer",
+        pdfStoragePath: answerOrigKey,
+      }),
+    );
   }
+  const [problemDocId, answerDocId] = await Promise.all(docPromises);
   console.log(`  DB: problemDoc=${problemDocId}${answerDocId ? `, answerDoc=${answerDocId}` : ""}`);
 
   const boundaryMap = new Map(boundaries.map((b, i) => [i + 1, b]));
