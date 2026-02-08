@@ -32,8 +32,13 @@ export async function upsertUniversity(name: string): Promise<string> {
   return data.id as string;
 }
 
+const isForceMode = process.argv.includes("--force");
+
 /**
  * ドキュメント（問題 or 解答）レコードを作成し、IDを返す
+ * 既存レコードがある場合:
+ *   --force なし → エラーで停止
+ *   --force あり → 関連クエスチョンを削除してからドキュメントを削除し、新規登録
  */
 export async function createDocument(params: {
   universityId: string;
@@ -44,6 +49,35 @@ export async function createDocument(params: {
   pdfStoragePath: string;
 }): Promise<string> {
   const supabase = getSupabaseClient();
+
+  // 既存レコードの確認
+  const { data: existing } = await supabase
+    .from("kakomon_documents")
+    .select("id")
+    .eq("university_id", params.universityId)
+    .eq("year", params.year)
+    .eq("subject", params.subject)
+    .eq("exam_type", params.examType)
+    .eq("content_type", params.contentType)
+    .maybeSingle();
+
+  if (existing) {
+    if (!isForceMode) {
+      throw new Error(
+        `既に登録済みです (${params.universityId}/${params.year}/${params.subject}/${params.examType}/${params.contentType})。上書きするには --force を付けてください`,
+      );
+    }
+    // --force: 関連クエスチョンを削除してからドキュメントを削除
+    await supabase
+      .from("kakomon_questions")
+      .delete()
+      .eq("document_id", existing.id);
+    await supabase
+      .from("kakomon_documents")
+      .delete()
+      .eq("id", existing.id);
+    console.log(`  DB: 既存データを削除 (${params.contentType}: ${existing.id})`);
+  }
 
   const { data, error } = await supabase
     .from("kakomon_documents")
