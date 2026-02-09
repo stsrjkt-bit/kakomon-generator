@@ -22,6 +22,7 @@ import {
   problemPdfKey,
   answerPdfKey,
   resolveSubjectKey,
+  resolveSubjectName,
 } from "./lib/r2.js";
 import {
   upsertUniversity,
@@ -83,7 +84,8 @@ async function main(options: CliOptions): Promise<void> {
 
   // Phase 3: トピック付け（切り出し画像 → Gemini Vision）
   console.log("-- Phase 3: トピック付け -------------------------");
-  const tagResults = await tagQuestions(splitResults, options.subject);
+  const subjectName = resolveSubjectName(options.subject);
+  const tagResults = await tagQuestions(splitResults, subjectName);
   console.log(`  タグ付け完了: ${tagResults.length}件\n`);
 
   // Phase 4: 解答の切り出し（解答PDFがある場合のみ）

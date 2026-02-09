@@ -13,17 +13,38 @@ const SUBJECT_KEY_MAP: Record<string, string> = {
   国語: "japanese",
 };
 
+/** ASCIIキー → 日本語の逆引きマッピング */
+const SUBJECT_KEY_REVERSE: Record<string, string> = Object.fromEntries(
+  Object.entries(SUBJECT_KEY_MAP).map(([ja, en]) => [en, ja]),
+);
+
+/** ASCIIキーの集合（高速ルックアップ用） */
+const VALID_ASCII_KEYS = new Set(Object.values(SUBJECT_KEY_MAP));
+
 /**
- * 科目名（日本語）をASCIIキーに変換する
- * マッピングに存在しない場合はエラー
+ * 科目名をASCIIキーに変換する
+ * 日本語（"物理"）でもASCIIキー（"physics"）でも受け付ける
  */
 export function resolveSubjectKey(subject: string): string {
+  // 既にASCIIキーならそのまま返す
+  if (VALID_ASCII_KEYS.has(subject)) return subject;
+
+  // 日本語 → ASCIIキー
   const key = SUBJECT_KEY_MAP[subject];
-  if (!key) {
-    const valid = Object.keys(SUBJECT_KEY_MAP).join(", ");
-    throw new Error(`Unknown subject: "${subject}" (valid: ${valid})`);
-  }
-  return key;
+  if (key) return key;
+
+  const validJa = Object.keys(SUBJECT_KEY_MAP).join(", ");
+  const validEn = Object.values(SUBJECT_KEY_MAP).join(", ");
+  throw new Error(`Unknown subject: "${subject}" (valid: ${validJa} / ${validEn})`);
+}
+
+/**
+ * ASCIIキーまたは日本語の科目名を日本語に変換する
+ */
+export function resolveSubjectName(subject: string): string {
+  if (SUBJECT_KEY_REVERSE[subject]) return SUBJECT_KEY_REVERSE[subject];
+  if (SUBJECT_KEY_MAP[subject]) return subject;
+  return subject;
 }
 
 let r2Client: S3Client | null = null;
