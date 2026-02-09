@@ -137,9 +137,10 @@ async function main(options: CliOptions): Promise<void> {
 
   const { university, year, subject, examType } = options;
 
-  // 大学ID・科目キーをASCIIに解決
+  // 大学ID・科目キーをASCIIに解決、DB用は日本語名に解決
   const universityId = await upsertUniversity(university);
   const subjectKey = resolveSubjectKey(subject);
+  const subjectJa = resolveSubjectName(subject);
   console.log(`  大学ID: ${universityId}, 科目キー: ${subjectKey}`);
 
   // オリジナルPDFをR2にアップロード
@@ -181,7 +182,7 @@ async function main(options: CliOptions): Promise<void> {
     createDocument({
       universityId,
       year,
-      subject,
+      subject: subjectJa,
       examType,
       contentType: "problem",
       pdfStoragePath: problemOrigKey,
@@ -192,7 +193,7 @@ async function main(options: CliOptions): Promise<void> {
       createDocument({
         universityId,
         year,
-        subject,
+        subject: subjectJa,
         examType,
         contentType: "answer",
         pdfStoragePath: answerOrigKey,
