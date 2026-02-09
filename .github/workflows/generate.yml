@@ -100,7 +100,7 @@ jobs:
     needs: prepare-batch
     runs-on: ubuntu-latest
     strategy:
-      max-parallel: 3
+      max-parallel: 10
       matrix:
         university: ${{ fromJson(needs.prepare-batch.outputs.matrix) }}
     env:
@@ -203,7 +203,7 @@ jobs:
     needs: scan-r2
     runs-on: ubuntu-latest
     strategy:
-      max-parallel: 5
+      max-parallel: 10
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.scan-r2.outputs.matrix) }}
