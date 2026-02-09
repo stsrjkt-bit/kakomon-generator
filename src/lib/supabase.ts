@@ -16,22 +16,34 @@ function getSupabaseClient(): SupabaseClient {
 }
 
 /**
- * 大学を名前で検索し、IDを返す（存在しない場合は自動的にinsert）
+ * 大学をIDまたは名前で検索し、IDを返す（存在しない場合は自動的にinsert）
+ * CLIからは "iwate" のようなIDが渡されることも、"岩手大学" のような名前が渡されることもある
  */
 export async function upsertUniversity(name: string): Promise<string> {
   const supabase = getSupabaseClient();
 
-  const { data: existing } = await supabase
+  // まずIDとして検索
+  const { data: byId } = await supabase
+    .from("kakomon_universities")
+    .select("id")
+    .eq("id", name)
+    .maybeSingle();
+
+  if (byId) return byId.id as string;
+
+  // 次にnameとして検索
+  const { data: byName } = await supabase
     .from("kakomon_universities")
     .select("id")
     .eq("name", name)
     .maybeSingle();
 
-  if (existing) return existing.id as string;
+  if (byName) return byName.id as string;
 
+  // 見つからなければ新規作成（idとnameの両方にnameを使用）
   const { data, error } = await supabase
     .from("kakomon_universities")
-    .insert({ name })
+    .insert({ id: name, name })
     .select("id")
     .single();
 
