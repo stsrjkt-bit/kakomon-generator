@@ -1,0 +1,236 @@
+name: Generate Kakomon
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '実行モード'
+        required: true
+        type: choice
+        options:
+          - single
+          - batch
+          - scan
+      university:
+        description: '大学ID（例: akita）- single用'
+        required: false
+        type: string
+      universities:
+        description: 'カンマ区切りの大学リスト（例: akita,yamanashi,okayama）- batch/scan用'
+        required: false
+        type: string
+      subject:
+        description: '科目名（例: physics）'
+        required: true
+        type: string
+      year:
+        description: '年度（例: 2025）- single/batch用'
+        required: false
+        type: string
+      exam_type:
+        description: '試験種別 - single/batch用'
+        required: false
+        type: string
+        default: zenki
+
+jobs:
+  # ========== single: 1大学・1年度・1試験種別 ==========
+  generate:
+    if: inputs.mode == 'single'
+    runs-on: ubuntu-latest
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_VISION_MODEL: ${{ secrets.GEMINI_VISION_MODEL }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Download PDFs from R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          mkdir -p tmp
+          ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          BUCKET="${{ secrets.R2_BUCKET_NAME }}"
+          PREFIX="${{ inputs.university }}/${{ inputs.year }}/${{ inputs.subject }}/${{ inputs.exam_type }}"
+          aws s3 cp "s3://${BUCKET}/${PREFIX}/problem.pdf" tmp/problem.pdf --endpoint-url "${ENDPOINT}"
+          aws s3 cp "s3://${BUCKET}/${PREFIX}/answer.pdf" tmp/answer.pdf --endpoint-url "${ENDPOINT}" || echo "::warning::answer.pdf not found, skipping"
+
+      - name: Run kakomon-generate
+        run: |
+          ARGS="--problem tmp/problem.pdf --subject ${{ inputs.subject }} --university ${{ inputs.university }} --year ${{ inputs.year }} --exam-type ${{ inputs.exam_type }}"
+          if [ -f tmp/answer.pdf ]; then
+            ARGS="${ARGS} --answer tmp/answer.pdf"
+          fi
+          node dist/index.js ${ARGS}
+
+  # ========== batch: 複数大学・同一year/exam_type ==========
+  prepare-batch:
+    if: inputs.mode == 'batch'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          echo "matrix=$(echo '${{ inputs.universities }}' | jq -R -c 'split(",") | map(gsub("\\s+"; ""))')" >> "$GITHUB_OUTPUT"
+
+  batch-generate:
+    needs: prepare-batch
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 3
+      matrix:
+        university: ${{ fromJson(needs.prepare-batch.outputs.matrix) }}
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_VISION_MODEL: ${{ secrets.GEMINI_VISION_MODEL }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Download PDFs from R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          mkdir -p tmp
+          ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          BUCKET="${{ secrets.R2_BUCKET_NAME }}"
+          PREFIX="${{ matrix.university }}/${{ inputs.year }}/${{ inputs.subject }}/${{ inputs.exam_type }}"
+          aws s3 cp "s3://${BUCKET}/${PREFIX}/problem.pdf" tmp/problem.pdf --endpoint-url "${ENDPOINT}"
+          aws s3 cp "s3://${BUCKET}/${PREFIX}/answer.pdf" tmp/answer.pdf --endpoint-url "${ENDPOINT}" || echo "::warning::answer.pdf not found for ${{ matrix.university }}, skipping"
+
+      - name: Run kakomon-generate
+        run: |
+          ARGS="--problem tmp/problem.pdf --subject ${{ inputs.subject }} --university ${{ matrix.university }} --year ${{ inputs.year }} --exam-type ${{ inputs.exam_type }}"
+          if [ -f tmp/answer.pdf ]; then
+            ARGS="${ARGS} --answer tmp/answer.pdf"
+          fi
+          node dist/index.js ${ARGS}
+
+  # ========== scan: R2をスキャンして全year/exam_type を自動検出 ==========
+  scan-r2:
+    if: inputs.mode == 'scan'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    steps:
+      - name: Scan R2 for year/exam_type combinations
+        id: build-matrix
+        run: |
+          ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          BUCKET="${{ secrets.R2_BUCKET_NAME }}"
+          SUBJECT="${{ inputs.subject }}"
+
+          # カンマ区切りの大学リストを配列に変換
+          IFS=',' read -ra UNIS <<< "${{ inputs.universities }}"
+
+          ENTRIES="[]"
+          for uni in "${UNIS[@]}"; do
+            uni=$(echo "$uni" | xargs)  # trim whitespace
+            echo "Scanning ${uni}/${SUBJECT} ..."
+
+            # problem.pdf が存在するパスを列挙
+            LISTING=$(aws s3 ls "s3://${BUCKET}/${uni}/" --recursive --endpoint-url "${ENDPOINT}" 2>/dev/null || true)
+
+            # {uni}/{year}/{subject}/{exam_type}/problem.pdf にマッチする行を抽出
+            MATCHES=$(echo "${LISTING}" | grep -oP "${uni}/\K[0-9]{4}/${SUBJECT}/[^/]+" | sort -u || true)
+
+            while IFS='/' read -r year _ exam_type; do
+              [ -z "$year" ] && continue
+              echo "  found: ${uni} / ${year} / ${exam_type}"
+              ENTRIES=$(echo "${ENTRIES}" | jq -c --arg u "$uni" --arg y "$year" --arg e "$exam_type" \
+                '. + [{"university": $u, "year": $y, "exam_type": $e}]')
+            done <<< "${MATCHES}"
+          done
+
+          echo "Matrix entries: $(echo "${ENTRIES}" | jq length)"
+          echo "${ENTRIES}" | jq .
+          echo "matrix=${ENTRIES}" >> "$GITHUB_OUTPUT"
+
+  scan-and-generate:
+    needs: scan-r2
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 3
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.scan-r2.outputs.matrix) }}
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_VISION_MODEL: ${{ secrets.GEMINI_VISION_MODEL }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Download PDFs from R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          mkdir -p tmp
+          ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          BUCKET="${{ secrets.R2_BUCKET_NAME }}"
+          PREFIX="${{ matrix.university }}/${{ matrix.year }}/${{ inputs.subject }}/${{ matrix.exam_type }}"
+          echo "Downloading from ${PREFIX} ..."
+          aws s3 cp "s3://${BUCKET}/${PREFIX}/problem.pdf" tmp/problem.pdf --endpoint-url "${ENDPOINT}"
+          aws s3 cp "s3://${BUCKET}/${PREFIX}/answer.pdf" tmp/answer.pdf --endpoint-url "${ENDPOINT}" || echo "::warning::answer.pdf not found for ${{ matrix.university }}/${{ matrix.year }}/${{ matrix.exam_type }}, skipping"
+
+      - name: Run kakomon-generate
+        run: |
+          echo "=== ${{ matrix.university }} / ${{ matrix.year }} / ${{ matrix.exam_type }} ==="
+          ARGS="--problem tmp/problem.pdf --subject ${{ inputs.subject }} --university ${{ matrix.university }} --year ${{ matrix.year }} --exam-type ${{ matrix.exam_type }}"
+          if [ -f tmp/answer.pdf ]; then
+            ARGS="${ARGS} --answer tmp/answer.pdf"
+          fi
+          node dist/index.js ${ARGS}
