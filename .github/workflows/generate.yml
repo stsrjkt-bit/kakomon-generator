@@ -229,7 +229,7 @@ jobs:
       - name: Run kakomon-generate
         run: |
           echo "=== ${{ matrix.university }} / ${{ matrix.year }} / ${{ matrix.exam_type }} ==="
-          ARGS="--problem tmp/problem.pdf --subject ${{ inputs.subject }} --university ${{ matrix.university }} --year ${{ matrix.year }} --exam-type ${{ matrix.exam_type }}"
+          ARGS="--problem tmp/problem.pdf --subject ${{ inputs.subject }} --university ${{ matrix.university }} --year ${{ matrix.year }} --exam-type ${{ matrix.exam_type }} --force"
           if [ -f tmp/answer.pdf ]; then
             ARGS="${ARGS} --answer tmp/answer.pdf"
           fi

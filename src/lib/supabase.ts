@@ -16,19 +16,28 @@ function getSupabaseClient(): SupabaseClient {
 }
 
 /**
- * 大学を名前で検索し、IDを返す（存在しない場合はエラー）
+ * 大学を名前で検索し、IDを返す（存在しない場合は自動的にinsert）
  */
 export async function upsertUniversity(name: string): Promise<string> {
   const supabase = getSupabaseClient();
 
-  const { data, error } = await supabase
+  const { data: existing } = await supabase
     .from("kakomon_universities")
     .select("id")
     .eq("name", name)
+    .maybeSingle();
+
+  if (existing) return existing.id as string;
+
+  const { data, error } = await supabase
+    .from("kakomon_universities")
+    .insert({ name })
+    .select("id")
     .single();
 
-  if (error) throw new Error(`University not found: "${name}" (${error.message})`);
-  if (!data) throw new Error(`University not found: "${name}"`);
+  if (error) throw new Error(`Failed to create university "${name}": ${error.message}`);
+  if (!data) throw new Error(`Failed to create university "${name}": no data returned`);
+  console.log(`  DB: 大学を新規登録 "${name}" → ${data.id}`);
   return data.id as string;
 }
 
