@@ -11,6 +11,7 @@ on:
           - single
           - batch
           - scan
+          - list
       university:
         description: '大学ID（例: akita）- single用'
         required: false
@@ -32,6 +33,10 @@ on:
         required: false
         type: string
         default: zenki
+      entries:
+        description: 'JSON配列 [{"university":"x","year":"y","exam_type":"z"}, ...] - list用'
+        required: false
+        type: string
 
 jobs:
   # ========== single: 1大学・1年度・1試験種別 ==========
@@ -140,9 +145,9 @@ jobs:
           fi
           node dist/index.js ${ARGS}
 
-  # ========== scan: R2をスキャンして全year/exam_type を自動検出 ==========
+  # ========== scan/list: マトリックスを構築して並列実行 ==========
   scan-r2:
-    if: inputs.mode == 'scan'
+    if: inputs.mode == 'scan' || inputs.mode == 'list'
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
@@ -150,9 +155,20 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
     steps:
-      - name: Scan R2 for year/exam_type combinations
+      - name: Build matrix
         id: build-matrix
+        env:
+          ENTRIES_JSON: ${{ inputs.entries }}
         run: |
+          # list モード: entries入力をそのままマトリックスとして使用
+          if [ "${{ inputs.mode }}" = "list" ]; then
+            echo "Matrix entries: $(echo "${ENTRIES_JSON}" | jq length)"
+            echo "${ENTRIES_JSON}" | jq .
+            echo "matrix=${ENTRIES_JSON}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # scan モード: R2をスキャンしてマトリックスを構築
           ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           BUCKET="${{ secrets.R2_BUCKET_NAME }}"
           SUBJECT="${{ inputs.subject }}"
