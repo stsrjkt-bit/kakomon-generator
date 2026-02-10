@@ -5,12 +5,13 @@
  * マスターリストに存在する5階層トピックタグを付与する。
  *
  * 大問単体の画像を見せて判定する（全体PDFからではない）。
- * thinkingLevel は指定しない（デフォルト）。
+ * thinkingLevel: HIGH で深く考えてトピック判定する。
  *
  * Explicit Context Caching を使い、マスターリスト+共通プロンプトを
  * キャッシュして入力トークンコストを削減する。
  */
 
+import { ThinkingLevel } from "@google/genai";
 import { askVisionWithImage, callWithRetry, extractJson, client } from "../lib/gemini.js";
 import {
   getTopicsForSubject,
@@ -48,13 +49,19 @@ async function tagSingleQuestion(
   cachedContentName?: string,
   topicList?: string[],
 ): Promise<string[]> {
+  // labelはPDF由来の非信頼データのため、プロンプトインジェクション防止にサニタイズ
+  const safeLabel = label.replace(/」/g, "");
+
+  // キャッシュ使用時・未使用時で共通のプロンプト前半部分
+  const promptPrefix = `この画像は大学入試の${subject}の問題から「${safeLabel}」を切り出したものです。図中の数値や記号が小さい場合はズームして確認し、問題の内容を正確に把握してからトピックを判定してください。`;
+
   // キャッシュ使用時はシンプルなプロンプト、未使用時はフルプロンプト
   let prompt: string;
   if (cachedContentName) {
-    prompt = `この画像は大学入試の${subject}の問題から「${label}」を切り出したものです。この問題の出題分野のトピックタグをJSON配列で返してください。`;
+    prompt = `${promptPrefix}この問題の出題分野のトピックタグをJSON配列で返してください。`;
   } else {
     const topicListStr = (topicList ?? []).join("\n");
-    prompt = `この画像は大学入試の${subject}の問題から「${label}」を切り出したものです。
+    prompt = `${promptPrefix}
 この問題の出題分野のトピックタグを付けてください。
 
 【重要なルール】
@@ -71,7 +78,7 @@ JSON配列のみを返してください。マークダウンのコードブロ�
   }
 
   const raw = await callWithRetry(() =>
-    askVisionWithImage(prompt, imagePng, "image/png", cachedContentName),
+    askVisionWithImage(prompt, imagePng, "image/png", cachedContentName, ThinkingLevel.HIGH),
   );
 
   let tags: string[];

@@ -45,6 +45,7 @@ export async function askVisionWithImage(
   imageBuffer: Buffer,
   mimeType: "image/png" | "image/jpeg" = "image/png",
   cachedContent?: string,
+  thinkingLevel?: ThinkingLevel,
 ): Promise<string> {
   const imagePart: Part = {
     inlineData: {
@@ -61,6 +62,9 @@ export async function askVisionWithImage(
       ...(cachedContent
         ? { cachedContent }
         : { tools: [{ codeExecution: {} }] }),
+      ...(thinkingLevel && {
+        thinkingConfig: { thinkingLevel },
+      }),
     },
   });
 
