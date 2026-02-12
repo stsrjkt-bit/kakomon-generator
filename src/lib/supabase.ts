@@ -55,6 +55,18 @@ export async function upsertUniversity(name: string): Promise<string> {
 
 const isForceMode = process.argv.includes("--force");
 
+async function deleteDocumentCascade(documentId: string): Promise<void> {
+  const supabase = getSupabaseClient();
+  await supabase
+    .from("kakomon_questions")
+    .delete()
+    .eq("document_id", documentId);
+  await supabase
+    .from("kakomon_documents")
+    .delete()
+    .eq("id", documentId);
+}
+
 /**
  * ドキュメント（問題 or 解答）レコードを作成し、IDを返す
  * 既存レコードがある場合:
@@ -71,8 +83,8 @@ export async function createDocument(params: {
 }): Promise<string> {
   const supabase = getSupabaseClient();
 
-  // 既存レコードの確認
-  const { data: existing } = await supabase
+  // 既存レコードの確認（従来キー）
+  const { data: existingByComposite } = await supabase
     .from("kakomon_documents")
     .select("id")
     .eq("university_id", params.universityId)
@@ -82,22 +94,28 @@ export async function createDocument(params: {
     .eq("content_type", params.contentType)
     .maybeSingle();
 
-  if (existing) {
+  // pdf_storage_path の一意制約に対する既存レコード確認（科目表記揺れ等の取りこぼし対策）
+  const { data: existingByPath } = await supabase
+    .from("kakomon_documents")
+    .select("id")
+    .eq("pdf_storage_path", params.pdfStoragePath)
+    .maybeSingle();
+
+  const existingIds = new Set<string>();
+  if (existingByComposite?.id) existingIds.add(existingByComposite.id as string);
+  if (existingByPath?.id) existingIds.add(existingByPath.id as string);
+
+  if (existingIds.size > 0) {
     if (!isForceMode) {
       throw new Error(
         `既に登録済みです (${params.universityId}/${params.year}/${params.subject}/${params.examType}/${params.contentType})。上書きするには --force を付けてください`,
       );
     }
     // --force: 関連クエスチョンを削除してからドキュメントを削除
-    await supabase
-      .from("kakomon_questions")
-      .delete()
-      .eq("document_id", existing.id);
-    await supabase
-      .from("kakomon_documents")
-      .delete()
-      .eq("id", existing.id);
-    console.log(`  DB: 既存データを削除 (${params.contentType}: ${existing.id})`);
+    for (const id of existingIds) {
+      await deleteDocumentCascade(id);
+      console.log(`  DB: 既存データを削除 (${params.contentType}: ${id})`);
+    }
   }
 
   const { data, error } = await supabase
