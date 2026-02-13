@@ -21,6 +21,27 @@ import type { SplitResult, TagResult } from "../types.js";
 
 const modelName = process.env.GEMINI_VISION_MODEL ?? "gemini-3-flash-preview";
 
+const BASE_SUBJECT_TO_JA: Record<string, string> = {
+  math: "数学",
+  physics: "物理",
+  chemistry: "化学",
+  biology: "生物",
+  english: "英語",
+  japanese: "国語",
+};
+
+/**
+ * 科目キーをトピックマスター用の正規科目名に寄せる。
+ * 例: physics_di / physics_sys_sci_info -> 物理
+ */
+function normalizeTopicSubject(subject: string): string {
+  if (getTopicsForSubject(subject).length > 0) return subject;
+
+  const base = subject.split("_")[0];
+  const normalized = BASE_SUBJECT_TO_JA[base];
+  return normalized ?? subject;
+}
+
 /**
  * マスターリスト用のシステムインストラクション（キャッシュ対象）を構築する
  */
@@ -113,9 +134,10 @@ export async function tagQuestions(
   splits: SplitResult[],
   subject: string,
 ): Promise<TagResult[]> {
-  const topicList = getTopicsForSubject(subject);
+  const topicSubject = normalizeTopicSubject(subject);
+  const topicList = getTopicsForSubject(topicSubject);
   if (topicList.length === 0) {
-    console.warn(`  ⚠ 科目「${subject}」のトピックがマスターリストに見つかりません`);
+    console.warn(`  ⚠ 科目「${subject}」（正規化: ${topicSubject}）のトピックがマスターリストに見つかりません`);
     return splits.map((s) => ({
       label: s.label,
       questionNumber: s.questionNumber,
@@ -124,14 +146,14 @@ export async function tagQuestions(
   }
 
   console.log(
-    `  🏷️  ${splits.length}個の大問にトピックタグを付与中（${subject}: ${topicList.length}トピック）...`,
+    `  🏷️  ${splits.length}個の大問にトピックタグを付与中（${topicSubject}: ${topicList.length}トピック）...`,
   );
 
   // Explicit Context Caching: マスターリスト+共通プロンプトをキャッシュ
   let cachedContentName: string | undefined;
   try {
     const systemInstruction = buildCachedInstruction(
-      subject,
+      topicSubject,
       topicList.join("\n"),
     );
 
@@ -168,7 +190,7 @@ export async function tagQuestions(
       const topicTags = await tagSingleQuestion(
         split.imagePng,
         split.label,
-        subject,
+        topicSubject,
         cachedContentName,
         topicList,
       );
