@@ -29,6 +29,9 @@ export function resolveSubjectKey(subject: string): string {
   // 既にASCIIキーならそのまま返す
   if (VALID_ASCII_KEYS.has(subject)) return subject;
 
+  // 物理DIなどの派生科目キー（例: physics_di）を許容する
+  if (/^[a-z][a-z0-9_]*$/.test(subject)) return subject;
+
   // 日本語 → ASCIIキー
   const key = SUBJECT_KEY_MAP[subject];
   if (key) return key;
