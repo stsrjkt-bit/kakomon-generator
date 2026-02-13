@@ -172,6 +172,8 @@ jobs:
           ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           BUCKET="${{ secrets.R2_BUCKET_NAME }}"
           SUBJECT="${{ inputs.subject }}"
+          # grep -P で安全に使えるようにエスケープ
+          SUBJECT_REGEX=$(printf '%s' "${SUBJECT}" | sed -e 's/[][(){}.^$+*?|\\]/\\&/g')
 
           # カンマ区切りの大学リストを配列に変換
           IFS=',' read -ra UNIS <<< "${{ inputs.universities }}"
@@ -184,14 +186,15 @@ jobs:
             # problem.pdf が存在するパスを列挙
             LISTING=$(aws s3 ls "s3://${BUCKET}/${uni}/" --recursive --endpoint-url "${ENDPOINT}" 2>/dev/null || true)
 
-            # {uni}/{year}/{subject}/{exam_type}/problem.pdf にマッチする行を抽出
-            MATCHES=$(echo "${LISTING}" | grep -oP "${uni}/\K[0-9]{4}/${SUBJECT}/[^/]+" | sort -u || true)
+            # {uni}/{year}/{subject}/{exam_type}/problem.pdf 形式で、
+            # subject に入力値を含むキーを抽出（例: physics -> physics_di）
+            MATCHES=$(echo "${LISTING}" | grep -oP "${uni}/\K[0-9]{4}/[^/]*${SUBJECT_REGEX}[^/]*/[^/]+" | sort -u || true)
 
-            while IFS='/' read -r year _ exam_type; do
+            while IFS='/' read -r year matched_subject exam_type; do
               [ -z "$year" ] && continue
-              echo "  found: ${uni} / ${year} / ${exam_type}"
-              ENTRIES=$(echo "${ENTRIES}" | jq -c --arg u "$uni" --arg y "$year" --arg e "$exam_type" \
-                '. + [{"university": $u, "year": $y, "exam_type": $e}]')
+              echo "  found: ${uni} / ${year} / ${matched_subject} / ${exam_type}"
+              ENTRIES=$(echo "${ENTRIES}" | jq -c --arg u "$uni" --arg y "$year" --arg s "$matched_subject" --arg e "$exam_type" \
+                '. + [{"university": $u, "year": $y, "subject": $s, "exam_type": $e}]')
             done <<< "${MATCHES}"
           done
 
@@ -237,7 +240,11 @@ jobs:
           mkdir -p tmp
           ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           BUCKET="${{ secrets.R2_BUCKET_NAME }}"
-          PREFIX="${{ matrix.university }}/${{ matrix.year }}/${{ inputs.subject }}/${{ matrix.exam_type }}"
+          SOURCE_SUBJECT="${{ matrix.subject }}"
+          if [ -z "${SOURCE_SUBJECT}" ]; then
+            SOURCE_SUBJECT="${{ inputs.subject }}"
+          fi
+          PREFIX="${{ matrix.university }}/${{ matrix.year }}/${SOURCE_SUBJECT}/${{ matrix.exam_type }}"
           echo "Downloading from ${PREFIX} ..."
           aws s3 cp "s3://${BUCKET}/${PREFIX}/problem.pdf" tmp/problem.pdf --endpoint-url "${ENDPOINT}"
           aws s3 cp "s3://${BUCKET}/${PREFIX}/answer.pdf" tmp/answer.pdf --endpoint-url "${ENDPOINT}" || echo "::warning::answer.pdf not found for ${{ matrix.university }}/${{ matrix.year }}/${{ matrix.exam_type }}, skipping"
@@ -245,6 +252,9 @@ jobs:
       - name: Run kakomon-generate
         run: |
           echo "=== ${{ matrix.university }} / ${{ matrix.year }} / ${{ matrix.exam_type }} ==="
+          if [ -n "${{ matrix.subject }}" ]; then
+            echo "source subject: ${{ matrix.subject }} / requested subject: ${{ inputs.subject }}"
+          fi
           ARGS="--problem tmp/problem.pdf --subject ${{ inputs.subject }} --university ${{ matrix.university }} --year ${{ matrix.year }} --exam-type ${{ matrix.exam_type }} --force"
           if [ -f tmp/answer.pdf ]; then
             ARGS="${ARGS} --answer tmp/answer.pdf"
