@@ -1,0 +1,21 @@
+*** Begin Patch
+*** Update File: /home/stsrjkt/.codex/skills/kakomon-general-pdf-ingest/SKILL.md
+@@
+ - Final decision authority stays with the operator; Gemini output is never accepted without verification.
++
++## Lane Classification (A/B/C) - Gate Before Workflow
++
++Before doing any destructive rebuild or ingest work, classify the target universities into lanes. This keeps the skill optimized for the common case and prevents exception-heavy handling from dominating the workflow.
++
++- Lane A (Fast path): No bundled PDFs. Subject PDFs are already separated per subject/exam/content. Use only `add` fixes.
++- Lane B (Bundled but contiguous): Bundled PDFs exist but can be split by contiguous page ranges. Use the normal split+verify steps of this skill.
++- Lane C (Hard / defer): Bundled PDFs require non-contiguous page picking (interleaved subjects), year-to-year structure drift, or scan-first PDFs where reliable auto split is unlikely. Do not extend this skill to handle Lane C. Defer to a separate workflow/skill.
++
++Minimal classification signals:
++- Same PDF URL reused across multiple subjects/rows: bundled suspicion => B or C.
++- Labels like `理科（物理、化学、生物、地学）` or `物理・数学`: bundled => B or C.
++- Bundled PDF cover shows per-subject page ranges: likely B.
++- Pages alternate subjects / no clean contiguous ranges / structure varies by year: C.
+ 
+ ## Workflow
+*** End Patch
