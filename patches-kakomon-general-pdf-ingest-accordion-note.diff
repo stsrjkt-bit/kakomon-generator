@@ -1,0 +1,10 @@
+*** Begin Patch
+*** Update File: /home/stsrjkt/.codex/skills/kakomon-general-pdf-ingest/SKILL.md
+@@
+ 3. Discover official PDFs manually.
+ - Use official admissions pages only.
+ - Extract only required PDF links (exclude intent/use-policy docs unless requested).
+ - Normalize weird filenames exactly as published (e.g., extra dots in filename).
++- For accordion/tab/JS-expanded pages, verify links after expansion (not only initial static HTML).
++- Build a per-year expected-link checklist from headings/tables, and reconcile `expected vs extracted` before moving on.
+*** End Patch

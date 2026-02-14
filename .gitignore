@@ -2,3 +2,5 @@ node_modules/
 dist/
 .env
 *.tgz
+rebuild-kyushu_okinawa-20260214/
+manual-split-upload-summary.json
