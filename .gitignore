@@ -2,5 +2,6 @@ node_modules/
 dist/
 .env
 *.tgz
-rebuild-kyushu_okinawa-20260214/
+# Large local rebuild artifacts (PDFs, intermediate outputs). Keep reproducible notes as files (e.g. rebuild-*.md).
+rebuild-*/
 manual-split-upload-summary.json
