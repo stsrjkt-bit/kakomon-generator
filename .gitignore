@@ -5,3 +5,4 @@ dist/
 # Large local rebuild artifacts (PDFs, intermediate outputs). Keep reproducible notes as files (e.g. rebuild-*.md).
 rebuild-*/
 manual-split-upload-summary.json
+scripts/local/
