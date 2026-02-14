@@ -73,6 +73,8 @@ function generateR2Path(params: {
   exam_variant: string | null;
   content_type: string;
 }): string {
+  // This uses the collector path format, which includes optional subject_variant/exam_variant
+  // (differs from some helpers in src/lib/r2.ts which predate exam variants).
   const subjectPart = params.subject_variant
     ? `${params.subject_id}_${params.subject_variant}`
     : params.subject_id;
@@ -80,6 +82,34 @@ function generateR2Path(params: {
     ? `${params.exam_type}_${params.exam_variant}`
     : params.exam_type;
   return `${params.university_id}/${params.year}/${subjectPart}/${examPart}/${params.content_type}.pdf`;
+}
+
+async function fetchAllDocsByUniversityYears(params: {
+  universityIds: string[];
+  years: number[];
+}): Promise<any[]> {
+  const pageSize = 1000;
+  let from = 0;
+  const out: any[] = [];
+  for (;;) {
+    const to = from + pageSize - 1;
+    // Note: Supabase/PostgREST responses are commonly capped; paginate defensively.
+    // eslint-disable-next-line no-await-in-loop
+    const { data, error } = await supabase
+      .from("kakomon_documents")
+      .select(
+        "pdf_storage_path, university_id, year, subject, subject_raw, subject_display, exam_type, content_type, is_bundled_origin",
+      )
+      .in("university_id", params.universityIds)
+      .in("year", params.years)
+      .order("pdf_storage_path", { ascending: true })
+      .range(from, to);
+    if (error) throw new Error(`DB select failed: ${error.message}`);
+    out.push(...(data ?? []));
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
 }
 
 async function headKey(key: string): Promise<boolean> {
@@ -132,15 +162,10 @@ async function main() {
 
   // DB check
   // Avoid huge `in(pdf_storage_path, ...)` query strings; fetch by university/year instead.
-  const { data: docs, error } = await supabase
-    .from("kakomon_documents")
-    .select(
-      "pdf_storage_path, university_id, year, subject, subject_raw, subject_display, exam_type, content_type, is_bundled_origin",
-    )
-    .in("university_id", [...expectedUniversities])
-    .in("year", [...expectedYears]);
-
-  if (error) throw new Error(`DB select failed: ${error.message}`);
+  const docs = await fetchAllDocsByUniversityYears({
+    universityIds: [...expectedUniversities],
+    years: [...expectedYears],
+  });
   const got = new Set(
     (docs ?? [])
       .map((d) => d.pdf_storage_path as string)

@@ -48,17 +48,34 @@ async function chunked<T>(arr: T[], size: number): Promise<T[][]> {
   return out;
 }
 
+async function fetchAllDocIdsByUniversities(universityIds: string[]): Promise<string[]> {
+  const pageSize = 1000;
+  let from = 0;
+  const out: string[] = [];
+  for (;;) {
+    const to = from + pageSize - 1;
+    // Note: Supabase/PostgREST responses are commonly capped; paginate defensively.
+    // eslint-disable-next-line no-await-in-loop
+    const { data, error } = await supabase
+      .from("kakomon_documents")
+      .select("id")
+      .in("university_id", universityIds)
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (error) throw new Error(`select kakomon_documents failed: ${error.message}`);
+    const ids = (data ?? []).map((d: any) => d.id as string).filter(Boolean);
+    out.push(...ids);
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
+}
+
 async function main() {
   console.log(`Mode: ${dryRun ? "DRY RUN" : "LIVE"}`);
   console.log(`Targets: ${universityIds.join(", ")}`);
 
-  const { data: docs, error: docsErr } = await supabase
-    .from("kakomon_documents")
-    .select("id, university_id, pdf_storage_path")
-    .in("university_id", universityIds);
-
-  if (docsErr) throw new Error(`select kakomon_documents failed: ${docsErr.message}`);
-  const docIds = (docs ?? []).map((d) => d.id as string);
+  const docIds = await fetchAllDocIdsByUniversities(universityIds);
   console.log(`Documents to delete: ${docIds.length}`);
 
   if (dryRun) return;

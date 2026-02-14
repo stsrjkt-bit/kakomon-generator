@@ -17,6 +17,7 @@ import { tmpdir } from "os";
 import path from "path";
 import { spawnSync } from "child_process";
 import crypto from "crypto";
+import net from "net";
 import { createClient } from "@supabase/supabase-js";
 import { uploadToR2 } from "../src/lib/r2";
 
@@ -45,10 +46,75 @@ type PlanFile = {
   items: PlanItem[];
 };
 
+type SummaryItem = {
+  r2_path: string;
+  subject_id: string;
+  pages: string;
+  source_url: string;
+  bytes?: number;
+};
+
 function getArg(name: string): string | null {
   const idx = process.argv.indexOf(name);
   if (idx >= 0 && process.argv[idx + 1]) return process.argv[idx + 1];
   return null;
+}
+
+function isPrivateOrLocalhost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local")) return true;
+
+  // IP literal checks (best-effort). This does not resolve DNS.
+  const ipType = net.isIP(h);
+  if (ipType === 4) {
+    const parts = h.split(".").map((x) => parseInt(x, 10));
+    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return true;
+    const [a, b] = parts;
+    if (a === 0 || a === 127) return true;
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true; // link-local
+    return false;
+  }
+  if (ipType === 6) {
+    if (h === "::1") return true;
+    if (h.startsWith("fe80:")) return true; // link-local
+    if (h.startsWith("fc") || h.startsWith("fd")) return true; // unique local
+    return false;
+  }
+  return false;
+}
+
+function validateHttpUrl(input: string): URL {
+  let u: URL;
+  try {
+    u = new URL(input);
+  } catch {
+    throw new Error(`Invalid URL: ${input}`);
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") {
+    throw new Error(`URL must be http(s): ${input}`);
+  }
+  if (u.username || u.password) {
+    throw new Error(`URL must not include credentials: ${input}`);
+  }
+  if (isPrivateOrLocalhost(u.hostname)) {
+    throw new Error(`Refusing localhost/private host URL: ${input}`);
+  }
+  return u;
+}
+
+function generateExpectedR2Path(params: {
+  university_id: string;
+  year: number;
+  subject_id: string;
+  exam_type: string;
+  exam_variant: string | null | undefined;
+  content_type: "problem" | "answer";
+}): string {
+  const examPart = params.exam_variant ? `${params.exam_type}_${params.exam_variant}` : params.exam_type;
+  return `${params.university_id}/${params.year}/${params.subject_id}/${examPart}/${params.content_type}.pdf`;
 }
 
 function sh(cmd: string, args: string[]) {
@@ -93,16 +159,45 @@ async function main() {
   const workDir = mkdtempSync(path.join(tmpdir(), "kakomon-manual-split-"));
   console.log(`Workdir: ${workDir}`);
 
-  const summary: any[] = [];
+  const summary: SummaryItem[] = [];
   try {
     for (const item of plan.items) {
+      validateHttpUrl(item.source_url);
       const srcPdf = path.join(workDir, `src-${sha8(item.source_url)}.pdf`);
       console.log(`\n[download] ${item.source_url}`);
       if (!dryRun) {
-        sh("curl", ["-L", "--fail", "-sS", "-A", "Mozilla/5.0", item.source_url, "-o", srcPdf]);
+        sh("curl", [
+          "-L",
+          "--fail",
+          "-sS",
+          "-A",
+          "Mozilla/5.0",
+          "--max-redirs",
+          "5",
+          "--proto",
+          "=https,http",
+          "--proto-redir",
+          "=https,http",
+          "-o",
+          srcPdf,
+          "--",
+          item.source_url,
+        ]);
       }
 
       for (const out of item.outputs) {
+        const expectedKey = generateExpectedR2Path({
+          university_id: item.university_id,
+          year: item.year,
+          subject_id: out.subject_id,
+          exam_type: out.exam_type,
+          exam_variant: out.exam_variant ?? null,
+          content_type: out.content_type,
+        });
+        if (out.r2_path !== expectedKey) {
+          throw new Error(`Unexpected r2_path (refusing to overwrite arbitrary key)\n  got: ${out.r2_path}\n  expected: ${expectedKey}`);
+        }
+
         const outPdf = path.join(workDir, `out-${sha8(out.r2_path)}.pdf`);
         console.log(`[split] ${out.r2_path} pages=${out.pages}`);
         if (!dryRun) {
@@ -133,6 +228,7 @@ async function main() {
               subject_display: out.subject_display,
               exam_type: out.exam_type,
               exam_type_raw: out.exam_type_raw,
+              exam_variant: out.exam_variant ?? null,
               content_type: out.content_type,
               pdf_storage_path: out.r2_path,
               original_url: item.source_url,
