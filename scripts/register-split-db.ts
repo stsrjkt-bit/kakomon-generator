@@ -16,6 +16,7 @@
 
 import { readFileSync } from "fs";
 import { createClient } from "@supabase/supabase-js";
+import { resolveSubjectKey } from "../src/lib/r2";
 
 type FixEntry = {
   url?: string;
@@ -128,6 +129,7 @@ async function main() {
   console.log(`Split entries: ${splitEntries.length}`);
 
   let planned = 0;
+  const rowsToUpsert: any[] = [];
   for (const e of splitEntries) {
     if (!e.university_id || !e.year || !e.exam_type || !e.content_type) {
       throw new Error(`split entry missing required fields: ${JSON.stringify(e)}`);
@@ -136,11 +138,19 @@ async function main() {
       throw new Error(`bundled_subjects missing/empty for split entry: ${JSON.stringify(e)}`);
     }
     for (const sid of e.bundled_subjects) {
-      const lbl = SUBJECT_LABELS[sid] ?? { raw: sid, display: sid };
+      const sidStr = String(sid);
+      let subjectKey = sidStr;
+      try {
+        subjectKey = resolveSubjectKey(sidStr);
+      } catch {
+        // Keep as-is if unknown; this script is for backfilling and may see unexpected subject keys.
+        subjectKey = sidStr;
+      }
+      const lbl = SUBJECT_LABELS[subjectKey] ?? SUBJECT_LABELS[sidStr] ?? { raw: sidStr, display: sidStr };
       const r2Path = generateR2Path({
         university_id: e.university_id,
         year: e.year,
-        subject_id: sid,
+        subject_id: subjectKey,
         subject_variant: e.subject_variant ?? null,
         exam_type: e.exam_type,
         exam_variant: e.exam_variant ?? null,
@@ -151,7 +161,7 @@ async function main() {
       const row = {
         university_id: e.university_id,
         year: e.year,
-        subject: sid,
+        subject: subjectKey,
         subject_raw: lbl.raw,
         subject_display: lbl.display,
         exam_type: e.exam_type,
@@ -164,15 +174,25 @@ async function main() {
       };
 
       if (dryRun) {
-        console.log(`- upsert ${r2Path} subject=${sid} (${lbl.raw}) from ${e.url ?? "(no url)"}`);
+        console.log(`- upsert ${r2Path} subject=${subjectKey} (${lbl.raw}) from ${e.url ?? "(no url)"}`);
         continue;
       }
 
+      rowsToUpsert.push(row);
+    }
+  }
+
+  if (!dryRun && rowsToUpsert.length > 0) {
+    // Batch upsert for performance (avoid per-row network calls).
+    const chunkSize = 500;
+    for (let i = 0; i < rowsToUpsert.length; i += chunkSize) {
+      const chunk = rowsToUpsert.slice(i, i + chunkSize);
       // eslint-disable-next-line no-await-in-loop
       const { error } = await supabase
         .from("kakomon_documents")
-        .upsert(row, { onConflict: "pdf_storage_path" });
-      if (error) throw new Error(`upsert failed (${r2Path}): ${error.message}`);
+        .upsert(chunk, { onConflict: "pdf_storage_path" });
+      if (error) throw new Error(`upsert failed (batch starting at ${i}): ${error.message}`);
+      console.log(`Upserted ${Math.min(i + chunk.length, rowsToUpsert.length)}/${rowsToUpsert.length}`);
     }
   }
 
@@ -183,4 +203,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

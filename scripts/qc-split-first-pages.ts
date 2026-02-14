@@ -7,6 +7,7 @@
  *
  * Usage:
  *   npx -s tsx scripts/qc-split-first-pages.ts --split-fixes path/to/fixes-split.json --out-dir /tmp/split-qc
+ *   npx -s tsx scripts/qc-split-first-pages.ts --split-fixes path/to/fixes-split.json --out-dir /tmp/split-qc --concurrency 16
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
@@ -68,6 +69,13 @@ async function streamToBuffer(body: any): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+function isMissingKeyError(err: unknown): boolean {
+  const anyErr = err as any;
+  const code = anyErr?.name || anyErr?.Code || anyErr?.code;
+  const status = anyErr?.$metadata?.httpStatusCode;
+  return code === "NoSuchKey" || code === "NotFound" || status === 404;
+}
+
 function safeName(s: string): string {
   return s.replace(/[^a-zA-Z0-9_.-]+/g, "_");
 }
@@ -96,8 +104,14 @@ function parseEntries(jsonPath: string): SplitFixEntry[] {
 async function main() {
   const splitFixesPath = getArg("--split-fixes");
   const outDir = getArg("--out-dir") ?? "/tmp/split-qc";
+  const concurrencyRaw = getArg("--concurrency");
+  const concurrency = concurrencyRaw ? parseInt(concurrencyRaw, 10) : 8;
   if (!splitFixesPath) {
     console.error("Error: --split-fixes is required");
+    process.exit(1);
+  }
+  if (!Number.isFinite(concurrency) || concurrency <= 0) {
+    console.error("Error: --concurrency must be a positive integer");
     process.exit(1);
   }
 
@@ -145,32 +159,49 @@ async function main() {
 
   console.log(`Split entries: ${splitEntries.length}`);
   console.log(`Keys: ${keys.length}`);
+  console.log(`Concurrency: ${concurrency}`);
 
-  for (const key of keys) {
-    const base = safeName(key.replace(/\//g, "__"));
-    const pdfPath = join(outDir, `${base}.pdf`);
-    const outStem = join(outDir, `${base}`);
-    const pngPath = `${outStem}-1.png`;
+  let next = 0;
+  const workers = Array.from({ length: concurrency }, async () => {
+    for (;;) {
+      const i = next;
+      next += 1;
+      const key = keys[i];
+      if (!key) return;
 
-    let buf: Buffer;
-    try {
+      const base = safeName(key.replace(/\//g, "__"));
+      const pdfPath = join(outDir, `${base}.pdf`);
+      const outStem = join(outDir, `${base}`);
+      const pngPath = `${outStem}-1.png`;
+
+      let res: any;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        res = await client.send(new GetObjectCommand({ Bucket: bucketName, Key: key }));
+      } catch (err) {
+        if (isMissingKeyError(err)) {
+          console.warn(`SKIP missing key: ${key}`);
+          continue;
+        }
+        throw err;
+      }
+
+      if (!res.Body) {
+        throw new Error(`Empty body for key: ${key}`);
+      }
+
       // eslint-disable-next-line no-await-in-loop
-      const res = await client.send(new GetObjectCommand({ Bucket: bucketName, Key: key }));
-      // eslint-disable-next-line no-await-in-loop
-      buf = await streamToBuffer((res as any).Body);
-    } catch {
-      console.warn(`SKIP missing key: ${key}`);
-      continue;
+      const buf = await streamToBuffer(res.Body);
+      writeFileSync(pdfPath, buf);
+      pdftoppmFirstPage(pdfPath, outStem);
+      console.log(`OK ${key} -> ${pngPath}`);
     }
+  });
 
-    writeFileSync(pdfPath, buf);
-    pdftoppmFirstPage(pdfPath, outStem);
-    console.log(`OK ${key} -> ${pngPath}`);
-  }
+  await Promise.all(workers);
 }
 
 main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-
