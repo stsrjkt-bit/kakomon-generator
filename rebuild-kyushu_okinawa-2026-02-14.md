@@ -8,7 +8,7 @@ This runbook is executed for **exactly one** university at a time.
 
 - `current_university_id`: TODO (pick exactly 1 from the list below)
 - `current_official_page`: TODO
-- `scope_years`: Default = "official page currently links" only (not historical backfill)
+- `scope_years`: Default = "ALL years reachable from the official page" (including intermediate per-year/per-subject pages; not only direct PDF links)
 - `lane`: TODO (A/B/C, decided from `current_university_id` PDFs only)
 
 Hard gate:
@@ -31,6 +31,7 @@ Targets (kakomon_universities) reference list:
 Notes:
 - Destructive step (zero rebuild) will delete DB rows in `kakomon_documents` where `university_id == current_university_id`, and delete R2 keys with prefix `<current_university_id>/...`. Must confirm year range/scope before doing this.
 - Also report whether the current university's official page uses "セル結合型" (same PDF URL reused across multiple subjects/rows).
+  - Some universities (e.g. 熊本大学) link to intermediate HTML pages like `index_file/01_r06zen_kokugo` rather than PDFs; these must be followed to discover the actual PDF URLs before fixes/deletion.
 
 ## Execution Rule (One University At A Time)
 
@@ -40,10 +41,11 @@ To avoid "hours of work with zero shipped results", this rebuild must be execute
 - Do not inspect other universities' PDFs or pages during this run.
 - Complete end-to-end for that university:
   - official link discovery (current page contents only)
+    - include intermediate pages (non-PDF) linked from the official page until all reachable PDF URLs are enumerated
   - PDF content inspection (manual verification)
   - fixes creation
-  - DB deletion (scoped to current linked years only)
-  - R2 deletion (scoped to current linked years only)
+  - DB deletion (scoped to the years discovered from the official page crawl)
+  - R2 deletion (scoped to the years discovered from the official page crawl)
   - `kakomon-collector fix --apply`
   - DB+R2 verification
 - Write a short report for that university (what was ingested, counts, any anomalies).
