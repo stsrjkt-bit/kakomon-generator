@@ -12,7 +12,7 @@
  */
 
 import { ThinkingLevel } from "@google/genai";
-import { askVisionWithImage, callWithRetry, extractJson, client } from "../lib/gemini.js";
+import { askVisionWithImage, callWithRetry, extractJson, getClient } from "../lib/gemini.js";
 import {
   getTopicsForSubject,
   isValidTopic,
@@ -85,7 +85,10 @@ export async function createTopicContextCache(params: {
   topicSubject: string;
   /** 5階層フルパスのトピック配列 */
   topicList: string[];
-}): Promise<string | undefined> {
+  /** Cache TTL (e.g. "300s") */
+  ttl?: string;
+}): Promise<{ name: string; totalTokenCount?: number }> {
+  const client = getClient();
   const systemInstruction = buildCachedInstruction(
     params.topicSubject,
     params.topicList.join("\n"),
@@ -102,14 +105,21 @@ export async function createTopicContextCache(params: {
         },
       ],
       tools: [{ codeExecution: {} }],
-      ttl: "300s",
+      ttl: params.ttl ?? "300s",
       displayName: `kakomon-topics-${params.cacheNameSuffix}`,
     },
   });
-  return cached.name;
+  if (!cached.name) {
+    throw new Error("Context Cache create returned no name");
+  }
+  return {
+    name: cached.name,
+    totalTokenCount: cached.usageMetadata?.totalTokenCount,
+  };
 }
 
 export async function deleteTopicContextCache(name: string): Promise<void> {
+  const client = getClient();
   await client.caches.delete({ name });
 }
 
@@ -207,13 +217,14 @@ export async function tagQuestions(
   // Explicit Context Caching: マスターリスト+共通プロンプトをキャッシュ
   let cachedContentName: string | undefined;
   try {
-    cachedContentName = await createTopicContextCache({
+    const cached = await createTopicContextCache({
       cacheNameSuffix: subject,
       topicSubject,
       topicList,
     });
+    cachedContentName = cached.name;
     console.log(
-      `  📦 キャッシュ作成完了: ${cachedContentName}`,
+      `  📦 キャッシュ作成完了: ${cachedContentName} (${cached.totalTokenCount ?? "?"} tokens)`,
     );
   } catch (err) {
     console.warn(

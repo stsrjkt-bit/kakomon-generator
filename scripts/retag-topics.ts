@@ -68,6 +68,17 @@ async function detectFirstExistingColumn(params: {
   return null;
 }
 
+function looksLikeExpiredCacheError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  if (!msg.includes("cache") && !msg.includes("cached")) return false;
+  return (
+    msg.includes("not found")
+    || msg.includes("404")
+    || msg.includes("expired")
+    || msg.includes("invalid")
+  );
+}
+
 async function main() {
   const program = new Command();
   program
@@ -102,48 +113,41 @@ async function main() {
   const TABLE = "kakomon_chunks";
 
   // Detect columns to support slight schema differences across environments.
-  const idCol = await detectFirstExistingColumn({
-    supabase,
-    table: TABLE,
-    candidates: ["id"],
-  });
-  const subjectCol = await detectFirstExistingColumn({
-    supabase,
-    table: TABLE,
-    candidates: ["subject"],
-  });
-  const splitImageCol = await detectFirstExistingColumn({
-    supabase,
-    table: TABLE,
-    candidates: ["split_image_path"],
-  });
-  const topicTagsCol = await detectFirstExistingColumn({
-    supabase,
-    table: TABLE,
-    candidates: ["topic_tags"],
-  });
+  const [
+    idCol,
+    subjectCol,
+    splitImageCol,
+    topicTagsCol,
+    universityCol,
+    labelCol,
+    questionNumberCol,
+  ] = await Promise.all([
+    detectFirstExistingColumn({ supabase, table: TABLE, candidates: ["id"] }),
+    detectFirstExistingColumn({ supabase, table: TABLE, candidates: ["subject"] }),
+    detectFirstExistingColumn({ supabase, table: TABLE, candidates: ["split_image_path"] }),
+    detectFirstExistingColumn({ supabase, table: TABLE, candidates: ["topic_tags"] }),
+    detectFirstExistingColumn({
+      supabase,
+      table: TABLE,
+      candidates: ["university", "university_name", "university_id"],
+    }),
+    detectFirstExistingColumn({
+      supabase,
+      table: TABLE,
+      candidates: ["label", "question_label", "chunk_label"],
+    }),
+    detectFirstExistingColumn({
+      supabase,
+      table: TABLE,
+      candidates: ["question_number", "questionNumber"],
+    }),
+  ]);
 
   if (!idCol || !subjectCol || !splitImageCol || !topicTagsCol) {
     throw new Error(
       `Required columns missing in ${TABLE}: id=${idCol}, subject=${subjectCol}, split_image_path=${splitImageCol}, topic_tags=${topicTagsCol}`,
     );
   }
-
-  const universityCol = await detectFirstExistingColumn({
-    supabase,
-    table: TABLE,
-    candidates: ["university", "university_name", "university_id"],
-  });
-  const labelCol = await detectFirstExistingColumn({
-    supabase,
-    table: TABLE,
-    candidates: ["label", "question_label", "chunk_label"],
-  });
-  const questionNumberCol = await detectFirstExistingColumn({
-    supabase,
-    table: TABLE,
-    candidates: ["question_number", "questionNumber"],
-  });
 
   if (opts.university && !universityCol) {
     throw new Error(`--university was provided but no university column was found in ${TABLE}`);
@@ -249,12 +253,15 @@ async function main() {
 
     let cachedContentName: string | undefined;
     try {
-      cachedContentName = await createTopicContextCache({
+      const cached = await createTopicContextCache({
         cacheNameSuffix: subjectRaw,
         topicSubject,
         topicList,
+        // This script can process thousands of rows; avoid cache expiry mid-batch.
+        ttl: "3600s",
       });
-      console.log(`  📦 Cache: ${cachedContentName}`);
+      cachedContentName = cached.name;
+      console.log(`  📦 Cache: ${cachedContentName} (${cached.totalTokenCount ?? "?"} tokens)`);
     } catch (err) {
       console.warn(
         `  ⚠ Context Cache作成に失敗、キャッシュなしで続行: ${err instanceof Error ? err.message : err}`,
@@ -285,14 +292,47 @@ async function main() {
         try {
           // eslint-disable-next-line no-await-in-loop
           const png = await downloadFromR2(splitImagePath);
-          // eslint-disable-next-line no-await-in-loop
-          const newTags = await tagSingleQuestion(
-            png,
-            label,
-            topicSubject,
-            cachedContentName,
-            topicList,
-          );
+          let newTags: string[];
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            newTags = await tagSingleQuestion(
+              png,
+              label,
+              topicSubject,
+              cachedContentName,
+              topicList,
+            );
+          } catch (err) {
+            // If cache expired mid-batch, refresh once and retry.
+            if (cachedContentName && looksLikeExpiredCacheError(err)) {
+              console.warn("    ⚠ Cache may be expired; recreating cache and retrying once...");
+              try {
+                // eslint-disable-next-line no-await-in-loop
+                const cached = await createTopicContextCache({
+                  cacheNameSuffix: subjectRaw,
+                  topicSubject,
+                  topicList,
+                  ttl: "3600s",
+                });
+                cachedContentName = cached.name;
+                console.log(`    📦 Cache refreshed: ${cachedContentName}`);
+              } catch (refreshErr) {
+                console.warn(
+                  `    ⚠ Cache refresh failed: ${refreshErr instanceof Error ? refreshErr.message : refreshErr}`,
+                );
+              }
+              // eslint-disable-next-line no-await-in-loop
+              newTags = await tagSingleQuestion(
+                png,
+                label,
+                topicSubject,
+                cachedContentName,
+                topicList,
+              );
+            } else {
+              throw err;
+            }
+          }
 
           if (dryRun) {
             console.log(`    DRY RUN topic_tags(${newTags.length}): ${JSON.stringify(newTags)}`);

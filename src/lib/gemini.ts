@@ -2,14 +2,19 @@ import { GoogleGenAI, type GenerateContentResponse, type Part, ThinkingLevel } f
 
 // ─── クライアント初期化 ──────────────────────────────
 
-const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) {
-  throw new Error("GEMINI_API_KEY environment variable is required");
-}
-
 const modelName = process.env.GEMINI_VISION_MODEL ?? "gemini-3-flash-preview";
 
-export const client = new GoogleGenAI({ apiKey });
+let client: GoogleGenAI | null = null;
+
+export function getClient(): GoogleGenAI {
+  if (client) return client;
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY environment variable is required");
+  }
+  client = new GoogleGenAI({ apiKey });
+  return client;
+}
 
 // ─── usageMetadata ログ出力 ──────────────────────────
 
@@ -47,6 +52,7 @@ export async function askVisionWithImage(
   cachedContent?: string,
   thinkingLevel?: ThinkingLevel,
 ): Promise<string> {
+  const client = getClient();
   const imagePart: Part = {
     inlineData: {
       data: imageBuffer.toString("base64"),
@@ -78,6 +84,7 @@ export async function askVisionWithImages(
   prompt: string,
   images: { buffer: Buffer; mimeType: "image/png" | "image/jpeg" }[],
 ): Promise<string> {
+  const client = getClient();
   const parts: Part[] = images.map((img) => ({
     inlineData: {
       data: img.buffer.toString("base64"),
@@ -105,6 +112,7 @@ export async function askVisionWithPdf(
   pdfBuffer: Buffer,
   thinkingLevel?: ThinkingLevel,
 ): Promise<string> {
+  const client = getClient();
   const pdfPart: Part = {
     inlineData: {
       data: pdfBuffer.toString("base64"),
