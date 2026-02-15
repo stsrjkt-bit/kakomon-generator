@@ -1,5 +1,6 @@
 import {
   S3Client,
+  GetObjectCommand,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 
@@ -99,6 +100,37 @@ export async function uploadToR2(
   );
 
   return key;
+}
+
+async function bodyToBuffer(body: unknown): Promise<Buffer> {
+  if (!body) return Buffer.alloc(0);
+  if (Buffer.isBuffer(body)) return body;
+  if (body instanceof Uint8Array) return Buffer.from(body);
+
+  // Node.js Readable stream (what we expect in this repo)
+  if (typeof (body as any)?.[Symbol.asyncIterator] === "function") {
+    const chunks: Buffer[] = [];
+    for await (const chunk of body as AsyncIterable<Uint8Array>) {
+      chunks.push(Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
+  }
+
+  throw new Error(`Unsupported R2 body type: ${Object.prototype.toString.call(body)}`);
+}
+
+/**
+ * R2からオブジェクトをダウンロードして Buffer で返す
+ */
+export async function downloadFromR2(key: string): Promise<Buffer> {
+  const client = getR2Client();
+  const res = await client.send(
+    new GetObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+    }),
+  );
+  return bodyToBuffer(res.Body);
 }
 
 /**

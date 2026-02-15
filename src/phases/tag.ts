@@ -12,7 +12,7 @@
  */
 
 import { ThinkingLevel } from "@google/genai";
-import { askVisionWithImage, callWithRetry, extractJson, client } from "../lib/gemini.js";
+import { askVisionWithImage, callWithRetry, extractJson, getClient } from "../lib/gemini.js";
 import {
   getTopicsForSubject,
   isValidTopic,
@@ -49,7 +49,7 @@ const TOPIC_SELECTION_RULES = `【トピック選択の粒度ルール - 厳守�
  * 科目キーをトピックマスター用の正規科目名に寄せる。
  * 例: physics_di / physics_sys_sci_info -> 物理
  */
-function normalizeTopicSubject(subject: string): string {
+export function normalizeTopicSubject(subject: string): string {
   if (getTopicsForSubject(subject).length > 0) return subject;
 
   const base = subject.split("_")[0];
@@ -78,10 +78,55 @@ ${topicListStr}
 例: ["${subject}/分野A/単元A/サブ単元A/トピックA","${subject}/分野B/単元B/サブ単元B/トピックB"]`;
 }
 
+export async function createTopicContextCache(params: {
+  /** displayName末尾に使う（例: "physics_di" や "物理"） */
+  cacheNameSuffix: string;
+  /** マスターリストの科目名（例: "物理"） */
+  topicSubject: string;
+  /** 5階層フルパスのトピック配列 */
+  topicList: string[];
+  /** Cache TTL (e.g. "300s") */
+  ttl?: string;
+}): Promise<{ name: string; totalTokenCount?: number }> {
+  const client = getClient();
+  const systemInstruction = buildCachedInstruction(
+    params.topicSubject,
+    params.topicList.join("\n"),
+  );
+
+  console.log("  📦 マスターリストをContext Cacheに登録中...");
+  const cached = await client.caches.create({
+    model: modelName,
+    config: {
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: systemInstruction }],
+        },
+      ],
+      tools: [{ codeExecution: {} }],
+      ttl: params.ttl ?? "300s",
+      displayName: `kakomon-topics-${params.cacheNameSuffix}`,
+    },
+  });
+  if (!cached.name) {
+    throw new Error("Context Cache create returned no name");
+  }
+  return {
+    name: cached.name,
+    totalTokenCount: cached.usageMetadata?.totalTokenCount,
+  };
+}
+
+export async function deleteTopicContextCache(name: string): Promise<void> {
+  const client = getClient();
+  await client.caches.delete({ name });
+}
+
 /**
  * 1つの大問画像に対してトピックタグを付与する
  */
-async function tagSingleQuestion(
+export async function tagSingleQuestion(
   imagePng: Buffer,
   label: string,
   subject: string,
@@ -172,29 +217,14 @@ export async function tagQuestions(
   // Explicit Context Caching: マスターリスト+共通プロンプトをキャッシュ
   let cachedContentName: string | undefined;
   try {
-    const systemInstruction = buildCachedInstruction(
+    const cached = await createTopicContextCache({
+      cacheNameSuffix: subject,
       topicSubject,
-      topicList.join("\n"),
-    );
-
-    console.log("  📦 マスターリストをContext Cacheに登録中...");
-    const cached = await client.caches.create({
-      model: modelName,
-      config: {
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: systemInstruction }],
-          },
-        ],
-        tools: [{ codeExecution: {} }],
-        ttl: "300s",
-        displayName: `kakomon-topics-${subject}`,
-      },
+      topicList,
     });
     cachedContentName = cached.name;
     console.log(
-      `  📦 キャッシュ作成完了: ${cachedContentName} (${cached.usageMetadata?.totalTokenCount ?? "?"} tokens)`,
+      `  📦 キャッシュ作成完了: ${cachedContentName} (${cached.totalTokenCount ?? "?"} tokens)`,
     );
   } catch (err) {
     console.warn(
@@ -231,7 +261,7 @@ export async function tagQuestions(
     // キャッシュの削除（エラー時にも必ず実行）
     if (cachedContentName) {
       try {
-        await client.caches.delete({ name: cachedContentName });
+        await deleteTopicContextCache(cachedContentName);
         console.log("  📦 Context Cache削除完了");
       } catch (err) {
         console.warn(
