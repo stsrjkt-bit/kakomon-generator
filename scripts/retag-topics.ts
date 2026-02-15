@@ -14,6 +14,9 @@
  *   npx -s tsx scripts/retag-topics.ts --force --subject 物理 --university 九州大学
  */
 
+// Keep scripts runnable via `npx tsx ...` without requiring the user to export env vars.
+import "dotenv/config";
+
 import { Command } from "commander";
 import { createClient } from "@supabase/supabase-js";
 import { downloadFromR2, resolveSubjectKey } from "../src/lib/r2";
@@ -86,26 +89,78 @@ async function resolveUniversityIdsByArg(params: {
 }
 
 function buildDocumentSubjectOrFilter(subjectArg: string): string {
-  // Accept either raw subject or its ASCII key if resolvable (e.g. "物理" -> "physics").
-  let subjectKey: string | null = null;
-  try {
-    subjectKey = resolveSubjectKey(subjectArg);
-  } catch {
-    subjectKey = null;
+  // NOTE: kakomon_documents.subject may contain either English keys ("physics", "physics_di", ...)
+  // or Japanese labels ("物理"). Make both match regardless of input.
+  const BASE_SUBJECT_TO_JA: Record<string, string> = {
+    math: "数学",
+    physics: "物理",
+    chemistry: "化学",
+    biology: "生物",
+    english: "英語",
+    japanese: "国語",
+  };
+  const JA_TO_BASE_SUBJECT: Record<string, string> = Object.fromEntries(
+    Object.entries(BASE_SUBJECT_TO_JA).map(([k, v]) => [v, k]),
+  );
+
+  // Avoid PostgREST filter injection: restrict input to a safe character set.
+  // We only need base subjects / short Japanese subject labels.
+  const sanitize = (v: string): string => {
+    const s = v
+      .trim()
+      .normalize("NFKC")
+      .replace(/[^0-9A-Za-z_\\-ぁ-んァ-ヶ一-龯ー]/g, "");
+    return s;
+  };
+  const hasJapanese = (v: string): boolean => /[ぁ-んァ-ヶ一-龯]/.test(v);
+
+  const raw = subjectArg.trim();
+  const s = sanitize(raw);
+  if (!s) return "id.is.null"; // match nothing (invalid subject)
+
+  // Determine "base" (English) and "ja" (Japanese label) so either input matches both.
+  // - "物理" -> base "physics", ja "物理"
+  // - "physics_di" -> base "physics", ja "物理"
+  // - "physics" -> base "physics", ja "物理"
+  let base: string | null = null;
+  let ja: string | null = null;
+
+  if (JA_TO_BASE_SUBJECT[s]) {
+    base = JA_TO_BASE_SUBJECT[s];
+    ja = s;
+  } else {
+    // Prefer explicit mapping for known bases; otherwise accept "<base>_<variant>".
+    const maybeBase = s.toLowerCase().split("_")[0] ?? "";
+    if (BASE_SUBJECT_TO_JA[maybeBase]) base = maybeBase;
+    if (!base) {
+      try {
+        // Fallback to existing resolver for additional aliases.
+        base = resolveSubjectKey(raw).split("_")[0] ?? null;
+      } catch {
+        base = null;
+      }
+    }
+    ja = base ? (BASE_SUBJECT_TO_JA[base] ?? null) : null;
   }
 
   const parts: string[] = [];
-  if (subjectKey) {
-    // Prefix match to include variants like physics_di / physics_sys_*.
-    parts.push(`subject.ilike.${subjectKey}%`);
+  // Match both "physics%" style and exact Japanese label in subject column.
+  if (base) parts.push(`subject.ilike.${sanitize(base)}%`);
+  if (ja) parts.push(`subject.eq.${sanitize(ja)}`);
+  // Also match exact input (covers unknown subjects stored as-is in `subject`).
+  parts.push(`subject.eq.${s}`);
+
+  // subject_raw/subject_display are expected to be Japanese; only use Japanese needles here.
+  if (ja) {
+    const n = sanitize(ja);
+    parts.push(`subject_raw.ilike.%${n}%`);
+    parts.push(`subject_display.ilike.%${n}%`);
+  }
+  if (hasJapanese(s) && s !== ja) {
+    parts.push(`subject_raw.ilike.%${s}%`);
+    parts.push(`subject_display.ilike.%${s}%`);
   }
 
-  // Raw/display may carry Japanese names like "物理".
-  const s = subjectArg.replace(/,/g, ""); // avoid breaking Supabase 'or()' expression
-  parts.push(`subject_raw.ilike.%${s}%`);
-  parts.push(`subject_display.ilike.%${s}%`);
-
-  // Dedup while preserving order.
   return Array.from(new Set(parts)).join(",");
 }
 
@@ -129,6 +184,7 @@ async function main() {
 
   const dryRun = !!opts.dryRun;
   const force = !!opts.force;
+  // Limit processing (Gemini calls + DB updates), not matching/fetch size.
   const limit = Number.isFinite(opts.limit as number) ? Math.max(0, opts.limit as number) : null;
 
   if (!dryRun && !force) {
@@ -204,7 +260,7 @@ async function main() {
     console.log(`Filtered documents: ${filteredDocIds.length}`);
   }
 
-  const rows: QuestionRow[] = [];
+  const matchedRows: QuestionRow[] = [];
   const qPageSize = 200;
 
   const fetchQuestionsPage = async (params: {
@@ -238,33 +294,29 @@ async function main() {
     for (let i = 0; i < filteredDocIds.length; i += docChunkSize) {
       const docChunk = filteredDocIds.slice(i, i + docChunkSize);
       for (let offset = 0; ; offset += qPageSize) {
-        if (limit !== null && rows.length >= limit) break;
-        const remaining = limit !== null ? limit - rows.length : qPageSize;
-        const pageLimit = Math.min(qPageSize, remaining);
         // eslint-disable-next-line no-await-in-loop
-        const batch = await fetchQuestionsPage({ documentIds: docChunk, offset, limitCount: pageLimit });
+        const batch = await fetchQuestionsPage({ documentIds: docChunk, offset, limitCount: qPageSize });
         if (batch.length === 0) break;
-        rows.push(...batch);
-        if (batch.length < pageLimit) break;
+        matchedRows.push(...batch);
+        if (batch.length < qPageSize) break;
       }
-      if (limit !== null && rows.length >= limit) break;
     }
   } else {
     // No doc-based filters: scan all questions with split_image_path.
     for (let offset = 0; ; offset += qPageSize) {
-      if (limit !== null && rows.length >= limit) break;
-      const remaining = limit !== null ? limit - rows.length : qPageSize;
-      const pageLimit = Math.min(qPageSize, remaining);
       // eslint-disable-next-line no-await-in-loop
-      const batch = await fetchQuestionsPage({ offset, limitCount: pageLimit });
+      const batch = await fetchQuestionsPage({ offset, limitCount: qPageSize });
       if (batch.length === 0) break;
-      rows.push(...batch);
-      if (batch.length < pageLimit) break;
+      matchedRows.push(...batch);
+      if (batch.length < qPageSize) break;
     }
   }
 
-  console.log(`Fetched rows: ${rows.length}`);
-  if (rows.length === 0) return;
+  console.log(`Fetched rows: ${matchedRows.length}`);
+  if (limit !== null) console.log(`Processing limit: ${limit}`);
+  if (matchedRows.length === 0) return;
+
+  const rows = limit !== null ? matchedRows.slice(0, limit) : matchedRows;
 
   // Resolve subject per row via kakomon_documents (document_id -> subject).
   // If we already fetched document rows for filtering, reuse that mapping.
@@ -316,6 +368,7 @@ async function main() {
       skippedNoTopics += group.length;
       continue;
     }
+    const topicSet = new Set(topicList);
 
     console.log(`\n== Subject: ${subjectRaw} (normalized: ${topicSubject}) rows=${group.length} topics=${topicList.length} ==`);
 
@@ -351,6 +404,9 @@ async function main() {
           asString(r.question_label) ?? `id:${id}`;
         const questionNumber =
           asNumber(r.question_number) ?? (i + 1);
+        const oldTags = Array.isArray(r.topic_tags)
+          ? (r.topic_tags as unknown[]).filter((t): t is string => typeof t === "string")
+          : [];
 
         processed++;
         console.log(`  🏷️  [${processed}/${rows.length}] ${label} (${id})`);
@@ -400,8 +456,15 @@ async function main() {
             }
           }
 
+          const unknownTags = newTags.filter((t) => !topicSet.has(t));
+          if (unknownTags.length > 0) {
+            throw new Error(`Unknown topic tag(s) (not in master): ${JSON.stringify(unknownTags)}`);
+          }
+
           if (dryRun) {
-            console.log(`    DRY RUN topic_tags(${newTags.length}): ${JSON.stringify(newTags)}`);
+            console.log(
+              `    DRY RUN topic_tags: old(${oldTags.length})=${JSON.stringify(oldTags)} -> new(${newTags.length})=${JSON.stringify(newTags)}`,
+            );
             ok++;
             continue;
           }
@@ -437,7 +500,8 @@ async function main() {
   }
 
   console.log("\n== Summary ==");
-  console.log(`Fetched: ${rows.length}`);
+  console.log(`Matched: ${matchedRows.length}`);
+  if (limit !== null) console.log(`Processing pool: ${rows.length}`);
   console.log(`Processed: ${processed}`);
   console.log(`OK: ${ok}`);
   console.log(`Failed: ${failed}`);
