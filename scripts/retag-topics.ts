@@ -3,7 +3,7 @@
  * Retag (Phase 3) topics for existing DB rows.
  *
  * Flow:
- * 1) Fetch kakomon_chunks rows that have split_image_path
+ * 1) Fetch kakomon_questions rows that have split_image_path
  * 2) Download PNG from R2 (split_image_path key)
  * 3) Retag with tagSingleQuestion() using TOPIC_SELECTION_RULES (via cached instruction)
  * 4) Update DB: ONLY topic_tags column
@@ -25,16 +25,13 @@ import {
   tagSingleQuestion,
 } from "../src/phases/tag";
 
-type ChunkRow = {
+type QuestionRow = {
   id: string;
-  subject: string;
+  document_id: string;
   split_image_path: string;
   topic_tags?: string[] | null;
-  // Optional columns (detected dynamically)
-  university?: string | null;
-  label?: string | null;
+  question_label?: string | null;
   question_number?: number | null;
-  [k: string]: unknown;
 };
 
 function mustGetEnv(name: string): string {
@@ -53,21 +50,6 @@ function asNumber(v: unknown): number | null {
   return null;
 }
 
-async function detectFirstExistingColumn(params: {
-  supabase: ReturnType<typeof createClient>;
-  table: string;
-  candidates: string[];
-}): Promise<string | null> {
-  for (const col of params.candidates) {
-    const { error } = await params.supabase
-      .from(params.table)
-      .select(col)
-      .limit(1);
-    if (!error) return col;
-  }
-  return null;
-}
-
 function looksLikeExpiredCacheError(err: unknown): boolean {
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
   if (!msg.includes("cache") && !msg.includes("cached")) return false;
@@ -77,6 +59,54 @@ function looksLikeExpiredCacheError(err: unknown): boolean {
     || msg.includes("expired")
     || msg.includes("invalid")
   );
+}
+
+async function resolveUniversityIdsByArg(params: {
+  supabase: ReturnType<typeof createClient>;
+  universityArg: string;
+}): Promise<string[]> {
+  const ua = params.universityArg.trim();
+  if (!ua) return [];
+
+  const { data, error } = await params.supabase
+    .from("kakomon_universities")
+    .select("id,name")
+    .or(`id.eq.${ua},name.ilike.%${ua}%`)
+    .limit(1000);
+
+  if (error) throw new Error(`Failed to lookup university "${ua}": ${error.message}`);
+  const ids = (data ?? [])
+    .map((r) => asString((r as any)?.id))
+    .filter((v): v is string => !!v);
+
+  // If the arg matches an id exactly, prefer that single id (avoid partial-name broad match).
+  if (ids.includes(ua)) return [ua];
+
+  return Array.from(new Set(ids));
+}
+
+function buildDocumentSubjectOrFilter(subjectArg: string): string {
+  // Accept either raw subject or its ASCII key if resolvable (e.g. "物理" -> "physics").
+  let subjectKey: string | null = null;
+  try {
+    subjectKey = resolveSubjectKey(subjectArg);
+  } catch {
+    subjectKey = null;
+  }
+
+  const parts: string[] = [];
+  if (subjectKey) {
+    // Prefix match to include variants like physics_di / physics_sys_*.
+    parts.push(`subject.ilike.${subjectKey}%`);
+  }
+
+  // Raw/display may carry Japanese names like "物理".
+  const s = subjectArg.replace(/,/g, ""); // avoid breaking Supabase 'or()' expression
+  parts.push(`subject_raw.ilike.%${s}%`);
+  parts.push(`subject_display.ilike.%${s}%`);
+
+  // Dedup while preserving order.
+  return Array.from(new Set(parts)).join(",");
 }
 
 async function main() {
@@ -110,126 +140,155 @@ async function main() {
   const key = mustGetEnv("SUPABASE_SERVICE_ROLE_KEY");
   const supabase = createClient(url, key);
 
-  const TABLE = "kakomon_chunks";
+  const TABLE = "kakomon_questions";
 
-  // Detect columns to support slight schema differences across environments.
-  const [
-    idCol,
-    subjectCol,
-    splitImageCol,
-    topicTagsCol,
-    universityCol,
-    labelCol,
-    questionNumberCol,
-  ] = await Promise.all([
-    detectFirstExistingColumn({ supabase, table: TABLE, candidates: ["id"] }),
-    detectFirstExistingColumn({ supabase, table: TABLE, candidates: ["subject"] }),
-    detectFirstExistingColumn({ supabase, table: TABLE, candidates: ["split_image_path"] }),
-    detectFirstExistingColumn({ supabase, table: TABLE, candidates: ["topic_tags"] }),
-    detectFirstExistingColumn({
-      supabase,
-      table: TABLE,
-      candidates: ["university", "university_name", "university_id"],
-    }),
-    detectFirstExistingColumn({
-      supabase,
-      table: TABLE,
-      candidates: ["label", "question_label", "chunk_label"],
-    }),
-    detectFirstExistingColumn({
-      supabase,
-      table: TABLE,
-      candidates: ["question_number", "questionNumber"],
-    }),
-  ]);
-
-  if (!idCol || !subjectCol || !splitImageCol || !topicTagsCol) {
-    throw new Error(
-      `Required columns missing in ${TABLE}: id=${idCol}, subject=${subjectCol}, split_image_path=${splitImageCol}, topic_tags=${topicTagsCol}`,
-    );
-  }
-
-  if (opts.university && !universityCol) {
-    throw new Error(`--university was provided but no university column was found in ${TABLE}`);
-  }
-
-  const selectCols = [
-    idCol,
-    subjectCol,
-    splitImageCol,
-    topicTagsCol,
-    ...(universityCol ? [universityCol] : []),
-    ...(labelCol ? [labelCol] : []),
-    ...(questionNumberCol ? [questionNumberCol] : []),
+  const questionSelectCols = [
+    "id",
+    "document_id",
+    "split_image_path",
+    "topic_tags",
+    "question_label",
+    "question_number",
   ];
 
   console.log(`Mode: ${dryRun ? "DRY RUN" : "LIVE"}`);
   console.log(`Table: ${TABLE}`);
-  console.log(`Columns: ${selectCols.join(", ")}`);
+  console.log(`Columns: ${questionSelectCols.join(", ")}`);
   if (opts.subject) console.log(`Filter subject: ${opts.subject}`);
-  if (opts.university) console.log(`Filter university: ${opts.university} (col: ${universityCol})`);
+  if (opts.university) console.log(`Filter university: ${opts.university}`);
   if (limit !== null) console.log(`Limit: ${limit}`);
 
-  const rows: ChunkRow[] = [];
-  const pageSize = 200;
-  let offset = 0;
-  while (true) {
+  // kakomon_questions does NOT have subject/university columns in this environment.
+  // Filter them via kakomon_documents (linked by document_id).
+  let filteredDocIds: string[] | null = null;
+  if (opts.subject || opts.university) {
     let q = supabase
-      .from(TABLE)
-      .select(selectCols.join(","))
-      .not(splitImageCol, "is", null)
-      .neq(splitImageCol, "");
+      .from("kakomon_documents")
+      .select("id,subject")
+      .eq("content_type", "problem");
 
     if (opts.subject) {
-      // Accept either raw subject or its ASCII key if resolvable (e.g. "物理" -> "physics").
-      let subjectKey: string | null = null;
-      try {
-        subjectKey = resolveSubjectKey(opts.subject);
-      } catch {
-        subjectKey = null;
-      }
-      if (subjectKey && subjectKey !== opts.subject) {
-        q = q.in(subjectCol, [opts.subject, subjectKey]);
-      } else {
-        q = q.eq(subjectCol, opts.subject);
-      }
+      q = q.or(buildDocumentSubjectOrFilter(opts.subject));
     }
 
-    if (opts.university && universityCol) {
-      if (universityCol.endsWith("_id")) {
-        q = q.eq(universityCol, opts.university);
-      } else {
-        q = q.ilike(universityCol, `%${opts.university}%`);
+    if (opts.university) {
+      const uniIds = await resolveUniversityIdsByArg({
+        supabase,
+        universityArg: opts.university,
+      });
+      if (uniIds.length === 0) {
+        throw new Error(`No university matched: ${opts.university}`);
       }
+      q = q.in("university_id", uniIds);
     }
 
-    if (limit !== null) {
-      const remaining = limit - rows.length;
-      if (remaining <= 0) break;
-      q = q.range(offset, offset + Math.min(pageSize, remaining) - 1);
-    } else {
-      q = q.range(offset, offset + pageSize - 1);
+    const docs: { id: string; subject: string }[] = [];
+    const pageSize = 1000;
+    for (let offset = 0; ; offset += pageSize) {
+      // eslint-disable-next-line no-await-in-loop
+      const { data, error } = await q.range(offset, offset + pageSize - 1);
+      if (error) throw new Error(`Failed to fetch kakomon_documents: ${error.message}`);
+      const batch = (data ?? []) as any[];
+      if (batch.length === 0) break;
+      for (const d of batch) {
+        const id = asString(d?.id);
+        const subject = asString(d?.subject);
+        if (id && subject) docs.push({ id, subject });
+      }
+      if (batch.length < pageSize) break;
     }
 
-    // eslint-disable-next-line no-await-in-loop
-    const { data, error } = await q;
+    filteredDocIds = docs.map((d) => d.id);
+    console.log(`Filtered documents: ${filteredDocIds.length}`);
+  }
+
+  const rows: QuestionRow[] = [];
+  const qPageSize = 200;
+
+  const fetchQuestionsPage = async (params: {
+    documentIds?: string[] | null;
+    offset: number;
+    limitCount: number;
+  }): Promise<QuestionRow[]> => {
+    let q = supabase
+      .from(TABLE)
+      .select(questionSelectCols.join(","))
+      .not("split_image_path", "is", null)
+      .neq("split_image_path", "");
+
+    if (params.documentIds && params.documentIds.length > 0) {
+      q = q.in("document_id", params.documentIds);
+    }
+
+    const { data, error } = await q.range(params.offset, params.offset + params.limitCount - 1);
     if (error) throw new Error(`Failed to fetch from ${TABLE}: ${error.message}`);
-    const batch = (data ?? []) as unknown as ChunkRow[];
-    if (batch.length === 0) break;
+    return (data ?? []) as unknown as QuestionRow[];
+  };
 
-    rows.push(...batch);
-    offset += pageSize;
+  if (filteredDocIds && filteredDocIds.length === 0) {
+    console.log("Fetched rows: 0");
+    return;
+  }
 
-    if (limit !== null && rows.length >= limit) break;
+  if (filteredDocIds) {
+    // Chunk document IDs to keep `in()` reasonable.
+    const docChunkSize = 100;
+    for (let i = 0; i < filteredDocIds.length; i += docChunkSize) {
+      const docChunk = filteredDocIds.slice(i, i + docChunkSize);
+      for (let offset = 0; ; offset += qPageSize) {
+        if (limit !== null && rows.length >= limit) break;
+        const remaining = limit !== null ? limit - rows.length : qPageSize;
+        const pageLimit = Math.min(qPageSize, remaining);
+        // eslint-disable-next-line no-await-in-loop
+        const batch = await fetchQuestionsPage({ documentIds: docChunk, offset, limitCount: pageLimit });
+        if (batch.length === 0) break;
+        rows.push(...batch);
+        if (batch.length < pageLimit) break;
+      }
+      if (limit !== null && rows.length >= limit) break;
+    }
+  } else {
+    // No doc-based filters: scan all questions with split_image_path.
+    for (let offset = 0; ; offset += qPageSize) {
+      if (limit !== null && rows.length >= limit) break;
+      const remaining = limit !== null ? limit - rows.length : qPageSize;
+      const pageLimit = Math.min(qPageSize, remaining);
+      // eslint-disable-next-line no-await-in-loop
+      const batch = await fetchQuestionsPage({ offset, limitCount: pageLimit });
+      if (batch.length === 0) break;
+      rows.push(...batch);
+      if (batch.length < pageLimit) break;
+    }
   }
 
   console.log(`Fetched rows: ${rows.length}`);
   if (rows.length === 0) return;
 
-  // Group by subject (as stored in DB) and build/delete cache per group (same pattern as tagQuestions()).
-  const bySubject = new Map<string, ChunkRow[]>();
+  // Resolve subject per row via kakomon_documents (document_id -> subject).
+  const docIds = Array.from(new Set(rows.map((r) => r.document_id).filter((v) => typeof v === "string" && v.length > 0)));
+  const subjectByDocId = new Map<string, string>();
+  {
+    const chunkSize = 200;
+    for (let i = 0; i < docIds.length; i += chunkSize) {
+      const chunk = docIds.slice(i, i + chunkSize);
+      // eslint-disable-next-line no-await-in-loop
+      const { data, error } = await supabase
+        .from("kakomon_documents")
+        .select("id,subject")
+        .in("id", chunk);
+      if (error) throw new Error(`Failed to fetch kakomon_documents for subject map: ${error.message}`);
+      for (const d of (data ?? []) as any[]) {
+        const id = asString(d?.id);
+        const subject = asString(d?.subject);
+        if (id && subject) subjectByDocId.set(id, subject);
+      }
+    }
+  }
+
+  // Group by document subject and build/delete cache per group (same pattern as tagQuestions()).
+  const bySubject = new Map<string, QuestionRow[]>();
   for (const r of rows) {
-    const s = asString((r as any)[subjectCol]) ?? "unknown";
+    const s = subjectByDocId.get(r.document_id) ?? "unknown";
     const arr = bySubject.get(s) ?? [];
     arr.push(r);
     bySubject.set(s, arr);
@@ -272,19 +331,17 @@ async function main() {
     try {
       for (let i = 0; i < group.length; i++) {
         const r = group[i];
-        const id = String((r as any)[idCol]);
-        const splitImagePath = asString((r as any)[splitImageCol]);
+        const id = String(r.id);
+        const splitImagePath = asString(r.split_image_path);
         if (!splitImagePath) {
           console.warn(`  ⚠ skip id=${id}: split_image_path empty`);
           continue;
         }
 
         const label =
-          (labelCol ? asString((r as any)[labelCol]) : null) ??
-          `id:${id}`;
+          asString(r.question_label) ?? `id:${id}`;
         const questionNumber =
-          (questionNumberCol ? asNumber((r as any)[questionNumberCol]) : null) ??
-          (i + 1);
+          asNumber(r.question_number) ?? (i + 1);
 
         processed++;
         console.log(`  🏷️  [${processed}/${rows.length}] ${label} (${id})`);
@@ -344,8 +401,8 @@ async function main() {
           // eslint-disable-next-line no-await-in-loop
           const { error } = await supabase
             .from(TABLE)
-            .update({ [topicTagsCol]: newTags })
-            .eq(idCol, id);
+            .update({ topic_tags: newTags })
+            .eq("id", id);
           if (error) throw new Error(error.message);
 
           console.log(`    UPDATED topic_tags(${newTags.length}) q=${questionNumber}`);
