@@ -64,6 +64,69 @@ function looksLikeExpiredCacheError(err: unknown): boolean {
   );
 }
 
+async function handleListUniversities(params: {
+  supabase: ReturnType<typeof createClient>;
+  subject: string;
+}): Promise<void> {
+  // Collect universities that have at least one "problem" document matching the subject.
+  // Output is JSON-only so GitHub Actions can safely parse it.
+  //
+  // NOTE: Ideally we'd fetch DISTINCT university_id at the DB level. Supabase/PostgREST doesn't
+  // expose a clean DISTINCT API for this pattern via the JS client, so we paginate the minimal
+  // column and de-duplicate locally.
+  const uniIdSet = new Set<string>();
+  const pageSize = 5000;
+
+  let q = params.supabase
+    .from("kakomon_documents")
+    .select("university_id")
+    .eq("content_type", "problem")
+    .not("university_id", "is", null)
+    .or(buildDocumentSubjectOrFilter(params.subject));
+
+  for (let offset = 0; ; offset += pageSize) {
+    // eslint-disable-next-line no-await-in-loop
+    const { data, error } = await q.range(offset, offset + pageSize - 1);
+    if (error) throw new Error(`Failed to fetch kakomon_documents: ${error.message}`);
+    const batch = (data ?? []) as any[];
+    if (batch.length === 0) break;
+    for (const d of batch) {
+      const uniId = asString(d?.university_id);
+      if (uniId) uniIdSet.add(uniId);
+    }
+    if (batch.length < pageSize) break;
+  }
+
+  const uniIds = Array.from(uniIdSet).sort();
+  if (uniIds.length === 0) {
+    process.stdout.write("[]\n");
+    return;
+  }
+
+  const idToName = new Map<string, string | null>();
+  const chunkSize = 200;
+  for (let i = 0; i < uniIds.length; i += chunkSize) {
+    const chunk = uniIds.slice(i, i + chunkSize);
+    // eslint-disable-next-line no-await-in-loop
+    const { data, error } = await params.supabase
+      .from("kakomon_universities")
+      .select("id,name")
+      .in("id", chunk);
+    if (error) throw new Error(`Failed to fetch kakomon_universities: ${error.message}`);
+    for (const r of (data ?? []) as any[]) {
+      const id = asString(r?.id);
+      const name = asString(r?.name);
+      if (id) idToName.set(id, name);
+    }
+  }
+
+  const out = uniIds.map((id) => ({
+    university_id: id,
+    university_name: idToName.get(id) ?? null,
+  }));
+  process.stdout.write(`${JSON.stringify(out)}\n`);
+}
+
 async function resolveUniversityIdsByArg(params: {
   supabase: ReturnType<typeof createClient>;
   universityArg: string;
@@ -205,57 +268,7 @@ async function main() {
       process.exit(1);
     }
 
-    // Collect universities that have at least one "problem" document matching the subject.
-    // Output is JSON-only so GitHub Actions can safely parse it.
-    const uniIdSet = new Set<string>();
-    const pageSize = 1000;
-    let q = supabase
-      .from("kakomon_documents")
-      .select("university_id")
-      .eq("content_type", "problem")
-      .or(buildDocumentSubjectOrFilter(opts.subject));
-
-    for (let offset = 0; ; offset += pageSize) {
-      // eslint-disable-next-line no-await-in-loop
-      const { data, error } = await q.range(offset, offset + pageSize - 1);
-      if (error) throw new Error(`Failed to fetch kakomon_documents: ${error.message}`);
-      const batch = (data ?? []) as any[];
-      if (batch.length === 0) break;
-      for (const d of batch) {
-        const uniId = asString(d?.university_id);
-        if (uniId) uniIdSet.add(uniId);
-      }
-      if (batch.length < pageSize) break;
-    }
-
-    const uniIds = Array.from(uniIdSet).sort();
-    if (uniIds.length === 0) {
-      process.stdout.write("[]\n");
-      return;
-    }
-
-    const idToName = new Map<string, string | null>();
-    const chunkSize = 200;
-    for (let i = 0; i < uniIds.length; i += chunkSize) {
-      const chunk = uniIds.slice(i, i + chunkSize);
-      // eslint-disable-next-line no-await-in-loop
-      const { data, error } = await supabase
-        .from("kakomon_universities")
-        .select("id,name")
-        .in("id", chunk);
-      if (error) throw new Error(`Failed to fetch kakomon_universities: ${error.message}`);
-      for (const r of (data ?? []) as any[]) {
-        const id = asString(r?.id);
-        const name = asString(r?.name);
-        if (id) idToName.set(id, name);
-      }
-    }
-
-    const out = uniIds.map((id) => ({
-      university_id: id,
-      university_name: idToName.get(id) ?? null,
-    }));
-    process.stdout.write(`${JSON.stringify(out)}\n`);
+    await handleListUniversities({ supabase, subject: opts.subject });
     return;
   }
 
