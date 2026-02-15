@@ -51,6 +51,26 @@ To avoid "hours of work with zero shipped results", this rebuild must be execute
 - Write a short report for that university (what was ingested, counts, any anomalies).
 - **Do not start the next university until the report is written.**
 
+## Official Page Fetch Guard (MUST)
+
+Problem observed (2026-02-15):
+- Some official pages return compressed (gzip) HTML. If you `curl -sL ... > page.html` without `--compressed`,
+  you may save gzipped bytes to disk, and downstream link extraction will silently return `0` matches.
+
+Rule:
+- When fetching an "official page" or any intermediate "HTML page", always:
+  - use `curl --compressed` (or the helper script below)
+  - verify the saved file is actually HTML (not gzip/binary)
+
+Helper:
+- Use `scripts/fetch-official-html.sh` for any URL you expect to be HTML:
+  - `scripts/fetch-official-html.sh "https://www.u-ryukyu.ac.jp/admissions/passed/" "tmp/ryukyu/passed.html"`
+  - `scripts/fetch-official-html.sh "https://www.u-ryukyu.ac.jp/admissions/passed/r6_kobetumondai_all/" "tmp/ryukyu/r6.html"`
+  - `scripts/fetch-official-html.sh "https://www.u-ryukyu.ac.jp/admissions/passed/r5_kobetumondai_all/" "tmp/ryukyu/r5.html"`
+
+Hard gate:
+- If the helper errors (mime mismatch / not HTML), stop and fix the fetch before doing link extraction / fixes / deletion.
+
 ## ABC Lane Classification (Do This Before Ingest)
 
 Rationale: Don't let a few "hard" bundled/scan PDFs force exception-heavy workflows on easy universities. Classify first, finish lane A first, then proceed to B, and defer C.
