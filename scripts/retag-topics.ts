@@ -103,43 +103,62 @@ function buildDocumentSubjectOrFilter(subjectArg: string): string {
     Object.entries(BASE_SUBJECT_TO_JA).map(([k, v]) => [v, k]),
   );
 
+  // Avoid PostgREST filter injection: restrict input to a safe character set.
+  // We only need base subjects / short Japanese subject labels.
+  const sanitize = (v: string): string => {
+    const s = v
+      .trim()
+      .normalize("NFKC")
+      .replace(/[^0-9A-Za-z_\\-ぁ-んァ-ヶ一-龯ー]/g, "");
+    return s;
+  };
+  const hasJapanese = (v: string): boolean => /[ぁ-んァ-ヶ一-龯]/.test(v);
+
   const raw = subjectArg.trim();
-  const s = raw.replace(/,/g, ""); // avoid breaking Supabase 'or()' expression
+  const s = sanitize(raw);
+  if (!s) return "id.is.null"; // match nothing (invalid subject)
 
-  // Try to resolve both directions:
-  // - "物理" -> "physics"
-  // - "physics_di" -> base "physics"
-  // - "physics" -> base "physics"
-  // - "物理" also stays as Japanese label
+  // Determine "base" (English) and "ja" (Japanese label) so either input matches both.
+  // - "物理" -> base "physics", ja "物理"
+  // - "physics_di" -> base "physics", ja "物理"
+  // - "physics" -> base "physics", ja "物理"
   let base: string | null = null;
-  try {
-    base = resolveSubjectKey(raw).split("_")[0] ?? null;
-  } catch {
-    base = null;
-  }
-  if (!base && /^[a-z]+(?:_[a-z0-9]+)*$/i.test(raw)) {
-    base = raw.toLowerCase().split("_")[0] ?? null;
-  }
-  if (!base && JA_TO_BASE_SUBJECT[raw]) {
-    base = JA_TO_BASE_SUBJECT[raw];
-  }
+  let ja: string | null = null;
 
-  const ja =
-    (base && BASE_SUBJECT_TO_JA[base]) ? BASE_SUBJECT_TO_JA[base]
-    : (JA_TO_BASE_SUBJECT[raw] ? raw : null);
-
-  const needles = Array.from(new Set([s, ja].filter((v): v is string => !!v)));
+  if (JA_TO_BASE_SUBJECT[s]) {
+    base = JA_TO_BASE_SUBJECT[s];
+    ja = s;
+  } else {
+    // Prefer explicit mapping for known bases; otherwise accept "<base>_<variant>".
+    const maybeBase = s.toLowerCase().split("_")[0] ?? "";
+    if (BASE_SUBJECT_TO_JA[maybeBase]) base = maybeBase;
+    if (!base) {
+      try {
+        // Fallback to existing resolver for additional aliases.
+        base = resolveSubjectKey(raw).split("_")[0] ?? null;
+      } catch {
+        base = null;
+      }
+    }
+    ja = base ? (BASE_SUBJECT_TO_JA[base] ?? null) : null;
+  }
 
   const parts: string[] = [];
   // Match both "physics%" style and exact Japanese label in subject column.
-  if (base) parts.push(`subject.ilike.${base}%`);
-  if (ja) parts.push(`subject.eq.${ja}`);
+  if (base) parts.push(`subject.ilike.${sanitize(base)}%`);
+  if (ja) parts.push(`subject.eq.${sanitize(ja)}`);
   // Also match exact input (covers unknown subjects stored as-is in `subject`).
-  if (s) parts.push(`subject.eq.${s}`);
+  parts.push(`subject.eq.${s}`);
 
-  for (const n of needles) {
+  // subject_raw/subject_display are expected to be Japanese; only use Japanese needles here.
+  if (ja) {
+    const n = sanitize(ja);
     parts.push(`subject_raw.ilike.%${n}%`);
     parts.push(`subject_display.ilike.%${n}%`);
+  }
+  if (hasJapanese(s) && s !== ja) {
+    parts.push(`subject_raw.ilike.%${s}%`);
+    parts.push(`subject_display.ilike.%${s}%`);
   }
 
   return Array.from(new Set(parts)).join(",");
