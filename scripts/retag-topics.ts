@@ -64,6 +64,69 @@ function looksLikeExpiredCacheError(err: unknown): boolean {
   );
 }
 
+async function handleListUniversities(params: {
+  supabase: ReturnType<typeof createClient>;
+  subject: string;
+}): Promise<void> {
+  // Collect universities that have at least one "problem" document matching the subject.
+  // Output is JSON-only so GitHub Actions can safely parse it.
+  //
+  // NOTE: Ideally we'd fetch DISTINCT university_id at the DB level. Supabase/PostgREST doesn't
+  // expose a clean DISTINCT API for this pattern via the JS client, so we paginate the minimal
+  // column and de-duplicate locally.
+  const uniIdSet = new Set<string>();
+  const pageSize = 5000;
+
+  let q = params.supabase
+    .from("kakomon_documents")
+    .select("university_id")
+    .eq("content_type", "problem")
+    .not("university_id", "is", null)
+    .or(buildDocumentSubjectOrFilter(params.subject));
+
+  for (let offset = 0; ; offset += pageSize) {
+    // eslint-disable-next-line no-await-in-loop
+    const { data, error } = await q.range(offset, offset + pageSize - 1);
+    if (error) throw new Error(`Failed to fetch kakomon_documents: ${error.message}`);
+    const batch = (data ?? []) as any[];
+    if (batch.length === 0) break;
+    for (const d of batch) {
+      const uniId = asString(d?.university_id);
+      if (uniId) uniIdSet.add(uniId);
+    }
+    if (batch.length < pageSize) break;
+  }
+
+  const uniIds = Array.from(uniIdSet).sort();
+  if (uniIds.length === 0) {
+    process.stdout.write("[]\n");
+    return;
+  }
+
+  const idToName = new Map<string, string | null>();
+  const chunkSize = 200;
+  for (let i = 0; i < uniIds.length; i += chunkSize) {
+    const chunk = uniIds.slice(i, i + chunkSize);
+    // eslint-disable-next-line no-await-in-loop
+    const { data, error } = await params.supabase
+      .from("kakomon_universities")
+      .select("id,name")
+      .in("id", chunk);
+    if (error) throw new Error(`Failed to fetch kakomon_universities: ${error.message}`);
+    for (const r of (data ?? []) as any[]) {
+      const id = asString(r?.id);
+      const name = asString(r?.name);
+      if (id) idToName.set(id, name);
+    }
+  }
+
+  const out = uniIds.map((id) => ({
+    university_id: id,
+    university_name: idToName.get(id) ?? null,
+  }));
+  process.stdout.write(`${JSON.stringify(out)}\n`);
+}
+
 async function resolveUniversityIdsByArg(params: {
   supabase: ReturnType<typeof createClient>;
   universityArg: string;
@@ -169,6 +232,7 @@ async function main() {
   program
     .option("--subject <subject>", "科目で絞り込み（例: 物理）")
     .option("--university <university>", "大学名（またはID）で絞り込み（任意）")
+    .option("--list-universities", "対象大学一覧をJSONで出力して終了（subject必須）")
     .option("--dry-run", "DB更新せずに結果だけ表示")
     .option("--force", "LIVE更新を実行する（--dry-run無しの場合に必須）")
     .option("--limit <n>", "処理件数の上限（テスト用）", (v) => Number(v))
@@ -177,17 +241,19 @@ async function main() {
   const opts = program.opts<{
     subject?: string;
     university?: string;
+    listUniversities?: boolean;
     dryRun?: boolean;
     force?: boolean;
     limit?: number;
   }>();
 
+  const listUniversities = !!opts.listUniversities;
   const dryRun = !!opts.dryRun;
   const force = !!opts.force;
   // Limit processing (Gemini calls + DB updates), not matching/fetch size.
   const limit = Number.isFinite(opts.limit as number) ? Math.max(0, opts.limit as number) : null;
 
-  if (!dryRun && !force) {
+  if (!listUniversities && !dryRun && !force) {
     console.error("Refusing to run LIVE without --force (use --dry-run first)");
     process.exit(1);
   }
@@ -195,6 +261,16 @@ async function main() {
   const url = mustGetEnv("SUPABASE_URL");
   const key = mustGetEnv("SUPABASE_SERVICE_ROLE_KEY");
   const supabase = createClient(url, key);
+
+  if (listUniversities) {
+    if (!opts.subject) {
+      console.error("--list-universities requires --subject");
+      process.exit(1);
+    }
+
+    await handleListUniversities({ supabase, subject: opts.subject });
+    return;
+  }
 
   const TABLE = "kakomon_questions";
 

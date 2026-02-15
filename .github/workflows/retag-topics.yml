@@ -1,0 +1,86 @@
+name: Retag Topics
+
+on:
+  workflow_dispatch:
+    inputs:
+      subject:
+        description: "科目（必須。例: 物理）"
+        required: true
+        type: string
+      dry_run:
+        description: "dry-runモード（trueならDB更新しない）"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  prepare-universities:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      count: ${{ steps.set-matrix.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - id: set-matrix
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          SUBJECT="${{ inputs.subject }}"
+          UNIS_JSON="$(npx -s tsx scripts/retag-topics.ts --list-universities --subject "${SUBJECT}")"
+          echo "Universities: $(echo "${UNIS_JSON}" | jq length)"
+          echo "${UNIS_JSON}" | jq .
+          echo "count=$(echo "${UNIS_JSON}" | jq length)" >> "$GITHUB_OUTPUT"
+          echo "matrix=${UNIS_JSON}" >> "$GITHUB_OUTPUT"
+
+  retag-by-university:
+    needs: prepare-universities
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        include: ${{ fromJson(needs.prepare-universities.outputs.matrix) }}
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_VISION_MODEL: ${{ secrets.GEMINI_VISION_MODEL }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: Run retag-topics
+        run: |
+          set -euo pipefail
+          SUBJECT="${{ inputs.subject }}"
+          UNIVERSITY_ID="${{ matrix.university_id }}"
+          UNIVERSITY_NAME="${{ matrix.university_name }}"
+
+          MODE_FLAG="--dry-run"
+          if [ "${{ inputs.dry_run }}" = "false" ]; then
+            MODE_FLAG="--force"
+          fi
+
+          echo "=== ${UNIVERSITY_ID} (${UNIVERSITY_NAME}) / subject=${SUBJECT} / mode=${MODE_FLAG} ==="
+          npx -s tsx scripts/retag-topics.ts ${MODE_FLAG} --subject "${SUBJECT}" --university "${UNIVERSITY_ID}"
+
