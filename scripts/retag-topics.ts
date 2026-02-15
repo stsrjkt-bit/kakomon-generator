@@ -161,6 +161,7 @@ async function main() {
   // kakomon_questions does NOT have subject/university columns in this environment.
   // Filter them via kakomon_documents (linked by document_id).
   let filteredDocIds: string[] | null = null;
+  let subjectByDocId: Map<string, string> | null = null;
   if (opts.subject || opts.university) {
     let q = supabase
       .from("kakomon_documents")
@@ -199,6 +200,7 @@ async function main() {
     }
 
     filteredDocIds = docs.map((d) => d.id);
+    subjectByDocId = new Map(docs.map((d) => [d.id, d.subject]));
     console.log(`Filtered documents: ${filteredDocIds.length}`);
   }
 
@@ -265,9 +267,16 @@ async function main() {
   if (rows.length === 0) return;
 
   // Resolve subject per row via kakomon_documents (document_id -> subject).
-  const docIds = Array.from(new Set(rows.map((r) => r.document_id).filter((v) => typeof v === "string" && v.length > 0)));
-  const subjectByDocId = new Map<string, string>();
-  {
+  // If we already fetched document rows for filtering, reuse that mapping.
+  if (!subjectByDocId) {
+    const docIds = Array.from(
+      new Set(
+        rows
+          .map((r) => r.document_id)
+          .filter((v) => typeof v === "string" && v.length > 0),
+      ),
+    );
+    subjectByDocId = new Map<string, string>();
     const chunkSize = 200;
     for (let i = 0; i < docIds.length; i += chunkSize) {
       const chunk = docIds.slice(i, i + chunkSize);
