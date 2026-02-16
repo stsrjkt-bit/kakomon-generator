@@ -54,5 +54,5 @@
 pdf-splitter は ingest を行わない。分割結果を `manual-split-plan.json` に記載し、
 `scripts/manual-split-upload.ts` でR2アップロード+DB upsertを実行する。
 
-詳細は `~/.claude/skills/kakomon-university-rebuild.md` の Phase B5 / Phase E を参照。
+詳細は `kakomon-university-rebuild` スキルの Phase B5 / Phase E を参照。
 
