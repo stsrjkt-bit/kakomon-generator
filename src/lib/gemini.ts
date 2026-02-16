@@ -103,8 +103,12 @@ export async function askVisionWithImages(
   return extractText(response);
 }
 
+/** インラインデータ上限 (10MB) に余裕を持たせた閾値 */
+const INLINE_DATA_THRESHOLD = 9.5 * 1024 * 1024;
+
 /**
  * PDFバッファを Gemini に送り、テキスト応答を得る
+ * 9.5MB超のPDFはFile APIでアップロードしてから参照する
  * thinkingLevel を指定すると thinkingConfig が有効になる
  */
 export async function askVisionWithPdf(
@@ -113,25 +117,61 @@ export async function askVisionWithPdf(
   thinkingLevel?: ThinkingLevel,
 ): Promise<string> {
   const client = getClient();
-  const pdfPart: Part = {
-    inlineData: {
-      data: pdfBuffer.toString("base64"),
-      mimeType: "application/pdf",
-    },
-  };
+  const useFileApi = pdfBuffer.length > INLINE_DATA_THRESHOLD;
+  let uploadedFileName: string | undefined;
 
-  const response = await client.models.generateContent({
-    model: modelName,
-    contents: [{ role: "user", parts: [{ text: prompt }, pdfPart] }],
-    config: {
-      tools: [{ codeExecution: {} }],
-      ...(thinkingLevel && {
-        thinkingConfig: { thinkingLevel },
-      }),
-    },
-  });
+  try {
+    let pdfPart: Part;
 
-  return extractText(response);
+    if (useFileApi) {
+      const sizeMB = (pdfBuffer.length / (1024 * 1024)).toFixed(1);
+      console.log(`  📤 PDF (${sizeMB} MB) > 9.5MB → File APIでアップロード中...`);
+      const uploaded = await client.files.upload({
+        file: new Blob([new Uint8Array(pdfBuffer)], { type: "application/pdf" }),
+        config: { mimeType: "application/pdf" },
+      });
+      if (!uploaded.uri) {
+        throw new Error("File API upload succeeded but returned no URI");
+      }
+      uploadedFileName = uploaded.name;
+      pdfPart = {
+        fileData: {
+          fileUri: uploaded.uri,
+          mimeType: "application/pdf",
+        },
+      };
+      console.log(`  ✅ アップロード完了: ${uploaded.name}`);
+    } else {
+      pdfPart = {
+        inlineData: {
+          data: pdfBuffer.toString("base64"),
+          mimeType: "application/pdf",
+        },
+      };
+    }
+
+    const response = await client.models.generateContent({
+      model: modelName,
+      contents: [{ role: "user", parts: [{ text: prompt }, pdfPart] }],
+      config: {
+        tools: [{ codeExecution: {} }],
+        ...(thinkingLevel && {
+          thinkingConfig: { thinkingLevel },
+        }),
+      },
+    });
+
+    return extractText(response);
+  } finally {
+    if (uploadedFileName) {
+      try {
+        await client.files.delete({ name: uploadedFileName });
+        console.log(`  🗑️ File API一時ファイル削除: ${uploadedFileName}`);
+      } catch (e) {
+        console.warn(`  ⚠ File API一時ファイル削除失敗: ${uploadedFileName}`, e);
+      }
+    }
+  }
 }
 
 // ─── ユーティリティ ──────────────────────────────────
