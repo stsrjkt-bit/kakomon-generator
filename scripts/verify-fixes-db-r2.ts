@@ -1,32 +1,14 @@
 #!/usr/bin/env tsx
 /**
- * Verify DB+R2 consistency for a fixes file (add + expected split outputs).
+ * Verify DB+R2 consistency for fixes (add entries + split plan outputs).
  *
  * Usage:
- *   npx tsx scripts/verify-fixes-db-r2.ts --add-fixes path/to/fixes-add.json --split-fixes path/to/fixes-split.json
+ *   npx tsx scripts/verify-fixes-db-r2.ts --add-fixes path/to/fixes-add.json --split-plan path/to/manual-split-plan.json
  */
 
 import { readFileSync } from "fs";
 import { createClient } from "@supabase/supabase-js";
 import { S3Client, HeadObjectCommand } from "@aws-sdk/client-s3";
-
-type FixEntry = {
-  url: string;
-  university_id: string;
-  year: number;
-  subject_id: string;
-  subject_variant: string | null;
-  subject_raw: string;
-  subject_display: string;
-  exam_type: string;
-  exam_variant: string | null;
-  exam_type_raw: string;
-  content_type: "problem" | "answer";
-  is_bundled: boolean;
-  bundled_subjects: string[] | null;
-  action: "add" | "split";
-  r2_path: string;
-};
 
 function getArg(name: string): string | null {
   const idx = process.argv.indexOf(name);
@@ -35,9 +17,9 @@ function getArg(name: string): string | null {
 }
 
 const addPath = getArg("--add-fixes");
-const splitPath = getArg("--split-fixes");
-if (!addPath || !splitPath) {
-  console.error("Error: --add-fixes and --split-fixes are required");
+const splitPlanPath = getArg("--split-plan");
+if (!addPath) {
+  console.error("Error: --add-fixes is required");
   process.exit(1);
 }
 
@@ -64,26 +46,6 @@ const r2 = new S3Client({
   credentials: { accessKeyId, secretAccessKey },
 });
 
-function generateR2Path(params: {
-  university_id: string;
-  year: number;
-  subject_id: string;
-  subject_variant: string | null;
-  exam_type: string;
-  exam_variant: string | null;
-  content_type: string;
-}): string {
-  // This uses the collector path format, which includes optional subject_variant/exam_variant
-  // (differs from some helpers in src/lib/r2.ts which predate exam variants).
-  const subjectPart = params.subject_variant
-    ? `${params.subject_id}_${params.subject_variant}`
-    : params.subject_id;
-  const examPart = params.exam_variant
-    ? `${params.exam_type}_${params.exam_variant}`
-    : params.exam_type;
-  return `${params.university_id}/${params.year}/${subjectPart}/${examPart}/${params.content_type}.pdf`;
-}
-
 async function fetchAllDocsByUniversityYears(params: {
   universityIds: string[];
   years: number[];
@@ -93,7 +55,6 @@ async function fetchAllDocsByUniversityYears(params: {
   const out: any[] = [];
   for (;;) {
     const to = from + pageSize - 1;
-    // Note: Supabase/PostgREST responses are commonly capped; paginate defensively.
     // eslint-disable-next-line no-await-in-loop
     const { data, error } = await supabase
       .from("kakomon_documents")
@@ -122,35 +83,41 @@ async function headKey(key: string): Promise<boolean> {
 }
 
 async function main() {
-  const add = JSON.parse(readFileSync(addPath, "utf8")) as FixEntry[];
-  const split = JSON.parse(readFileSync(splitPath, "utf8")) as FixEntry[];
+  const add = JSON.parse(readFileSync(addPath, "utf8")) as Array<{
+    action: string;
+    r2_path: string;
+    university_id: string;
+    year: number;
+  }>;
 
   const expectedKeys: string[] = [];
   const expectedUniversities = new Set<string>();
   const expectedYears = new Set<number>();
+
+  // From fixes-add.json: r2_path is explicit
   for (const e of add) {
     if (e.action !== "add") continue;
     expectedKeys.push(e.r2_path);
     expectedUniversities.add(e.university_id);
     expectedYears.add(e.year);
   }
-  for (const e of split) {
-    if (e.action !== "split") continue;
-    for (const sid of e.bundled_subjects ?? []) {
-      expectedKeys.push(
-        generateR2Path({
-          university_id: e.university_id,
-          year: e.year,
-          subject_id: sid,
-          subject_variant: null,
-          exam_type: e.exam_type,
-          exam_variant: e.exam_variant,
-          content_type: e.content_type,
-        }),
-      );
+
+  // From manual-split-plan.json: r2_path is explicit per output
+  if (splitPlanPath) {
+    const plan = JSON.parse(readFileSync(splitPlanPath, "utf8")) as {
+      items: Array<{
+        university_id: string;
+        year: number;
+        outputs: Array<{ r2_path: string }>;
+      }>;
+    };
+    for (const item of plan.items) {
+      for (const out of item.outputs) {
+        expectedKeys.push(out.r2_path);
+      }
+      expectedUniversities.add(item.university_id);
+      expectedYears.add(item.year);
     }
-    expectedUniversities.add(e.university_id);
-    expectedYears.add(e.year);
   }
 
   // Uniqueness
@@ -161,7 +128,6 @@ async function main() {
   console.log(`Expected objects: ${expectedKeys.length}`);
 
   // DB check
-  // Avoid huge `in(pdf_storage_path, ...)` query strings; fetch by university/year instead.
   const docs = await fetchAllDocsByUniversityYears({
     universityIds: [...expectedUniversities],
     years: [...expectedYears],

@@ -26,6 +26,7 @@ type PlanOut = {
   // 1-based page range for qpdf, e.g. "1-3" or "7-8"
   pages: string;
   subject_id: string;
+  subject_variant?: string | null;
   subject_raw: string;
   subject_display: string;
   exam_type: string;
@@ -109,17 +110,20 @@ function generateExpectedR2Path(params: {
   university_id: string;
   year: number;
   subject_id: string;
+  subject_variant?: string | null;
   exam_type: string;
   exam_variant: string | null | undefined;
   content_type: "problem" | "answer";
 }): string {
   const examPart = params.exam_variant ? `${params.exam_type}_${params.exam_variant}` : params.exam_type;
-  return `${params.university_id}/${params.year}/${params.subject_id}/${examPart}/${params.content_type}.pdf`;
+  const subjectPart = params.subject_variant ? `${params.subject_id}_${params.subject_variant}` : params.subject_id;
+  return `${params.university_id}/${params.year}/${subjectPart}/${examPart}/${params.content_type}.pdf`;
 }
 
 function sh(cmd: string, args: string[]) {
   const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 50 * 1024 * 1024 });
-  if (r.status !== 0) {
+  // qpdf exits 3 for warnings (e.g. object count mismatch) — treat as success
+  if (r.status !== 0 && !(cmd === "qpdf" && r.status === 3)) {
     const msg = (r.stderr || r.stdout || "").trim();
     throw new Error(`${cmd} failed: ${cmd} ${args.join(" ")}\n${msg}`);
   }
@@ -190,6 +194,7 @@ async function main() {
           university_id: item.university_id,
           year: item.year,
           subject_id: out.subject_id,
+          subject_variant: out.subject_variant ?? null,
           exam_type: out.exam_type,
           exam_variant: out.exam_variant ?? null,
           content_type: out.content_type,
@@ -228,7 +233,6 @@ async function main() {
               subject_display: out.subject_display,
               exam_type: out.exam_type,
               exam_type_raw: out.exam_type_raw,
-              exam_variant: out.exam_variant ?? null,
               content_type: out.content_type,
               pdf_storage_path: out.r2_path,
               original_url: item.source_url,
