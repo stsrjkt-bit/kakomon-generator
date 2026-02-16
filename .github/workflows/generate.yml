@@ -79,7 +79,7 @@ jobs:
 
       - name: Run kakomon-generate
         run: |
-          ARGS="--problem tmp/problem.pdf --subject ${{ inputs.subject }} --university ${{ inputs.university }} --year ${{ inputs.year }} --exam-type ${{ inputs.exam_type }}"
+          ARGS="--problem tmp/problem.pdf --subject ${{ inputs.subject }} --university ${{ inputs.university }} --year ${{ inputs.year }} --exam-type ${{ inputs.exam_type }} --force"
           if [ -f tmp/answer.pdf ]; then
             ARGS="${ARGS} --answer tmp/answer.pdf"
           fi
@@ -139,7 +139,7 @@ jobs:
 
       - name: Run kakomon-generate
         run: |
-          ARGS="--problem tmp/problem.pdf --subject ${{ inputs.subject }} --university ${{ matrix.university }} --year ${{ inputs.year }} --exam-type ${{ inputs.exam_type }}"
+          ARGS="--problem tmp/problem.pdf --subject ${{ inputs.subject }} --university ${{ matrix.university }} --year ${{ inputs.year }} --exam-type ${{ inputs.exam_type }} --force"
           if [ -f tmp/answer.pdf ]; then
             ARGS="${ARGS} --answer tmp/answer.pdf"
           fi
