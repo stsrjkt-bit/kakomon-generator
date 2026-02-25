@@ -190,8 +190,18 @@ jobs:
             # subject に入力値を含むキーを抽出（例: physics -> physics_di）
             MATCHES=$(echo "${LISTING}" | grep -oP "${uni}/\K[0-9]{4}/[^/]*${SUBJECT_REGEX}[^/]*/[^/]+" | sort -u || true)
 
+            YEAR_FILTER="${{ inputs.year }}"
+            EXAM_TYPE_FILTER="${{ inputs.exam_type }}"
             while IFS='/' read -r year matched_subject exam_type; do
               [ -z "$year" ] && continue
+              # year フィルタが指定されている場合、一致しない年度はスキップ
+              if [ -n "${YEAR_FILTER}" ] && [ "${year}" != "${YEAR_FILTER}" ]; then
+                continue
+              fi
+              # exam_type フィルタが指定されている場合、一致しない試験種別はスキップ
+              if [ -n "${EXAM_TYPE_FILTER}" ] && [ "${exam_type}" != "${EXAM_TYPE_FILTER}" ]; then
+                continue
+              fi
               echo "  found: ${uni} / ${year} / ${matched_subject} / ${exam_type}"
               ENTRIES=$(echo "${ENTRIES}" | jq -c --arg u "$uni" --arg y "$year" --arg s "$matched_subject" --arg e "$exam_type" \
                 '. + [{"university": $u, "year": $y, "subject": $s, "exam_type": $e}]')
