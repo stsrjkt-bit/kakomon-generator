@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.4.5",
+  "checkpoint_id": "4c1cebc1552b",
+  "session_id": "cb44f72e-ffd5-4928-8630-0ccccf796305",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-25T03:26:52.249651314Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/types.ts",
+    ".github/workflows/generate.yml",
+    "CLAUDE.md",
+    "src/index.ts",
+    "src/lib/gemini.ts",
+    "src/phases/tag.ts"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "bba98ad75e8d",
+  "transcript_identifier_at_start": "50faafb3-37cb-455e-b17a-20533c5d0619",
+  "token_usage": {
+    "input_tokens": 122,
+    "cache_creation_tokens": 146785,
+    "cache_read_tokens": 9495148,
+    "output_tokens": 43730,
+    "api_call_count": 110
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-25T03:26:50.641278391Z",
+    "agent_lines": 29,
+    "human_added": 13,
+    "human_modified": 12,
+    "human_removed": 0,
+    "total_committed": 54,
+    "agent_percentage": 53.70370370370371
+  },
+  "transcript_path": ".claude/projects/-home-stsrjkt-kakomon-generator/cb44f72e-ffd5-4928-8630-0ccccf796305.jsonl"
+}
