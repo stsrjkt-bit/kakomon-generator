@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.5",
+  "checkpoint_id": "4c1cebc1552b",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/generate.yml",
+    "CLAUDE.md",
+    "src/index.ts",
+    "src/lib/gemini.ts",
+    "src/phases/tag.ts",
+    "src/types.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/4c/1cebc1552b/0/metadata.json",
+      "transcript": "/4c/1cebc1552b/0/full.jsonl",
+      "context": "/4c/1cebc1552b/0/context.md",
+      "content_hash": "/4c/1cebc1552b/0/content_hash.txt",
+      "prompt": "/4c/1cebc1552b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 93,
+    "cache_creation_tokens": 94250,
+    "cache_read_tokens": 4480776,
+    "output_tokens": 25795,
+    "api_call_count": 75
+  }
+}
