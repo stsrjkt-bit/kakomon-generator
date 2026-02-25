@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.5",
+  "checkpoint_id": "88b3acfa8b70",
+  "session_id": "518f59c5-1cd6-4186-8322-32d10ffccb8e",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-25T15:00:47.208367873Z",
+  "branch": "main",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "src/constants/topic-master.ts"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "f7f1eb1665f4",
+  "transcript_identifier_at_start": "efa543ed-7724-4578-9f55-7d8aaf702fd4",
+  "token_usage": {
+    "input_tokens": 65,
+    "cache_creation_tokens": 189162,
+    "cache_read_tokens": 2866419,
+    "output_tokens": 9296,
+    "api_call_count": 45
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-25T15:00:45.060005027Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 3,
+    "human_removed": 2,
+    "total_committed": 0,
+    "agent_percentage": 0
+  },
+  "transcript_path": ".claude/projects/-home-stsrjkt-kakomon-generator/518f59c5-1cd6-4186-8322-32d10ffccb8e.jsonl"
+}
