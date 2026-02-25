@@ -3,7 +3,7 @@
   "checkpoint_id": "3345cd765846",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 25,
+  "checkpoints_count": 26,
   "files_touched": [
     ".gitignore",
     "scripts/batch-update-tags.ts"
@@ -50,13 +50,20 @@
       "context": "/33/45cd765846/5/context.md",
       "content_hash": "/33/45cd765846/5/content_hash.txt",
       "prompt": "/33/45cd765846/5/prompt.txt"
+    },
+    {
+      "metadata": "/33/45cd765846/6/metadata.json",
+      "transcript": "/33/45cd765846/6/full.jsonl",
+      "context": "/33/45cd765846/6/context.md",
+      "content_hash": "/33/45cd765846/6/content_hash.txt",
+      "prompt": "/33/45cd765846/6/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 8288,
-    "cache_creation_tokens": 1235487,
-    "cache_read_tokens": 69358866,
-    "output_tokens": 218751,
-    "api_call_count": 774
+    "input_tokens": 8410,
+    "cache_creation_tokens": 1382272,
+    "cache_read_tokens": 78854014,
+    "output_tokens": 262481,
+    "api_call_count": 884
   }
 }
