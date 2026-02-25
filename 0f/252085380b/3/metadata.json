@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.5",
+  "checkpoint_id": "0f252085380b",
+  "session_id": "74e56dae-6eb3-47b7-bb82-1a44ea7d26c7",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-25T02:18:11.382336376Z",
+  "branch": "main",
+  "checkpoints_count": 7,
+  "files_touched": [
+    ".github/workflows/generate.yml"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "a5e7a1ec7156",
+  "transcript_identifier_at_start": "d6ffda4f-a42e-473c-9561-59964e0b3620",
+  "token_usage": {
+    "input_tokens": 184,
+    "cache_creation_tokens": 148653,
+    "cache_read_tokens": 15819440,
+    "output_tokens": 31951,
+    "api_call_count": 160
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-25T02:18:09.719270453Z",
+    "agent_lines": 0,
+    "human_added": 10,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 10,
+    "agent_percentage": 0
+  },
+  "transcript_path": ".claude/projects/-home-stsrjkt-kakomon-generator/74e56dae-6eb3-47b7-bb82-1a44ea7d26c7.jsonl"
+}
