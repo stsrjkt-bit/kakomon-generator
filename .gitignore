@@ -6,3 +6,8 @@ dist/
 rebuild-*/
 manual-split-upload-summary.json
 scripts/local/
+audit-*/
+/*.pdf
+/*.png
+/query-*.ts
+tmp/
