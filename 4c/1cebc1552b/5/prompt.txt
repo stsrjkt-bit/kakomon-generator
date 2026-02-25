@@ -1,0 +1,378 @@
+数学の大問分割をやりたいんだけど、先にgithub actionで実施して監視して完了まで見届けて（~/.config/gh/hosts.yml に GitHub トークン）進捗をみたいので githubの確認画面のurl、みたいなスキルとして大問分割スキルを作りたい。
+
+---
+
+じゃ今やってくれた文系数学の大問分割のトピック付が妥当かどうかsonnetに判定させてほしい。トピック付のルールをふまえて
+
+---
+
+これ、もともとのダグに問題がある？それともgeminiに問題がある？
+
+---
+
+とりあえず確認だけやって
+
+---
+
+ワークフローの改善提案をして
+
+---
+
+gemini→sonnetが一番いいよね？sonetに全任せしてもやっぱりチェックどうするの問題が残るよな？
+
+---
+
+geminiのプロンプト改善には賛成なんだけど、キャパオーバーにならない？大問分割の位置みたいのを一緒に頼んでなかったっけ？
+
+---
+
+３番のgeminiの設定はちゃんとthink high , agentic visionになってる？
+
+---
+
+Model名はハードコードされずにenvから読み出して最新モデルを使うようになってる？
+
+---
+
+落ち着け、絶対にいじるなllmのモデル名を。フォールバックのやつはハードコードされてるのかな？
+
+---
+
+いや、カットしておいてそのフォールバック。エラーでいいの。llmはさっきキミもやった通り最新のモデル名をエラー扱いするからハードコードすると絶対にだめ。claude.mdにも書いてないですか？
+
+---
+
+おねがいします
+
+---
+
+そしたら、ワークフローの改善に戻ろう。geminiのプロンプト改善案は？
+
+---
+
+教科別のプロンプトが必要じゃない？
+
+---
+
+じゃ、それでさっきの大阪大学のトピック付が改善できるか実験して
+
+---
+
+でも、冷静に考えると、"数学": `■ 核心 vs 補助の区別（数学）
+  ○ 核心: その大問固有のテーマ（例: 垂直条件、数学的帰納法、接線の方程式、面積）
+  × 補助: 多くの問題で使う汎用計算道具（例: 解の公式、因数分解、判別式、定積分計算、2次方程式の解法）
+  判断: 「何の問題？」と聞かれて答えに含まれるか？含まれなければ補助。`,という部分で思考を助けてしまっただけってことはない？
+
+---
+
+"数学": `■ 核心 vs 補助の区別（数学）
+  ○ 核心: その大問固有のテーマ（例: 垂直条件、数学的帰納法、接線の方程式、面積）
+  × 補助: 多くの問題で使う汎用計算道具（例: 解の公式、因数分解、判別式、定積分計算、2次方程式の解法）
+  判断: 「何の問題？」と聞かれて答えに含まれるか？含まれなければ補助。`,ここ自体は放置でいいの？ここをカットしたバージョンで実験してみて
+
+---
+
+じゃ、具体例のプロンプトはどの教科も不要ということかな？sonnetチェックをいれるならば
+
+---
+
+そうしてください
+
+---
+
+apiでやると金がかかるから、だめ。このサブスクの範囲でなんとかして
+
+---
+
+おねがい
+
+---
+
+聞きたいことは２つ。１つめ：sonetのトピック付はあなた（opus4.6）から見ても妥当ですか？２つめ：geminiのトピック付いる？もはや無駄なプロセスにしか見えない
+
+---
+
+適材適所で、api料金を最適化できた？sonnetはpdfの読み取りは弱いでしょ？
+
+---
+
+gemini flashなんだけど、geminiのサブスクプランで同じような仕事をさせるようにできない？
+
+---
+
+なるほどね、トピック付にかなりapi料金を使ってたのかな？最新の無料枠の情報検索して
+
+---
+
+了解です。どこまで話したんだっけ？sonnetのチェックだけになったんだっけか？
+
+---
+
+index.ts に Phase 3 スキップのフラグ追加（GHA 用）  なんだけど、これでgeminiがトピック付けしなくなるってことでいい？
+
+---
+
+おねがいします。じゃ残タスクを完了させてください
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation:
+
+1. User wants to create a skill for running math question splitting (大問分割) via GitHub Actions, monitor it, and get the GitHub URL.
+
+2. I explored the codebase - existing skills, GHA workflows, CLI entry point, package.json, gh CLI config.
+
+3. Created the `kakomon-split-gha` skill at `~/.claude/skills/kakomon-split-gha/SKILL.md` and added it to the CLAUDE.md trigger table.
+
+4. User wanted to run osaka/2025/math/zenki in single mode. First attempt failed because R2 path was `osaka/2025/math_bunkei/zenki/problem.pdf` (variant), not `osaka/2025/math/zenki/problem.pdf`.
+
+5. User asked for long-term solution - I added year and exam_type filters to scan mode in generate.yml. Committed and pushed.
+
+6. Re-ran with scan mode - successfully found math_bunkei and math_rikei variants, both completed successfully.
+
+7. User wanted Sonnet to verify topic tags for math_bunkei. I downloaded question images from R2, extracted math topics from master list, and launched 3 Sonnet agents in parallel to verify.
+
+8. Sonnet found all 3 questions NEEDS_FIX:
+   - Q1: "解の公式" was wrong, missing "内積", "一直線上の点"
+   - Q2: "基本4パターン" was wrong
+   - Q3: Missing "接線の方程式"
+
+9. User asked if the problem was with tags or Gemini - I confirmed Gemini's reasoning was the issue, not the master list.
+
+10. User asked for workflow improvement proposals. I proposed 3 layers: A) Prompt improvement, B) Sonnet verification step, C) Tag quality dashboard.
+
+11. User agreed Gemini→Sonnet cross-check is best approach.
+
+12. User asked about Phase 3 Gemini settings - confirmed ThinkingLevel.HIGH and codeExecution are set, no agentic behavior.
+
+13. User asked about model name hardcoding - found fallback `"gemini-3-flash-preview"` hardcoded in gemini.ts and tag.ts. User firmly said to cut it - make it error instead. I removed fallbacks, added error throws. Also added rules to both CLAUDE.md files prohibiting hardcoded model names.
+
+14. Prompt improvement discussion:
+    - Created TOPIC_SELECTION_RULES with Step 1/Step 2 framework + subject-specific examples
+    - Tested with subject-specific examples: Q1 improved significantly
+    - User pointed out the examples might be "teaching the answer" (overfitting)
+    - Tested without subject-specific examples: Q1 regressed, Q2 still broken
+    - Confirmed: examples were overfitting, Step 1/Step 2 alone doesn't fundamentally fix Gemini
+    - User asked if subject-specific examples are needed if Sonnet checks - agreed they're not needed
+
+15. Implemented Sonnet cross-check:
+    - First tried API-based approach with @anthropic-ai/sdk
+    - User said NO to API costs - use Claude Code subscription (Task tool) instead
+    - Removed @anthropic-ai/sdk, deleted tag-verify.ts and test scripts
+    - Updated skill SKILL.md with Phase 5 (Sonnet cross-check via Task tool)
+
+16. User asked if Gemini tagging is even needed - I agreed Sonnet alone is better since Gemini was 0/3 accuracy.
+
+17. User pointed out Sonnet is weak at PDF reading but Gemini is strong at it - so keep Gemini for PDF tasks, Sonnet for reasoning.
+
+18. Final architecture decided:
+    - GHA (Gemini): Phase 1+2+4 (PDF reading, splitting) - skip Phase 3
+    - Local (Sonnet Task tool): Topic tagging from cropped PNGs + DB update
+
+19. User asked about using Gemini subscription instead of API - I researched and found Gemini Flash free tier (250 RPD) is more than enough with Phase 3 removed (only 2 calls per document).
+
+20. User asked to complete remaining tasks. I did:
+    - Added `--skip-tags` flag to index.ts and types.ts
+    - Added `--skip-tags` to all 3 `node dist/index.js` calls in generate.yml
+    - Fixed TypeScript build errors (module-scope const narrowing)
+    - Updated DB with Sonnet-recommended tags for osaka math_bunkei (all 3 returned 204)
+
+Remaining tasks from the list:
+- ✅ index.ts Phase 3 skip flag
+- ✅ DB update for osaka math_bunkei
+- Still need: commit + push all changes
+
+Let me check what was committed vs uncommitted:
+- Committed: scan mode year/exam_type filter (pushed)
+- Uncommitted: tag.ts prompt changes, gemini.ts model name changes, index.ts skip-tags, types.ts, generate.yml skip-tags, CLAUDE.md changes, package.json (removed @anthropic-ai/sdk)
+
+The user said "残タスクを完了させてください" and I was working through the list. DB update just completed (204 all). Still need to commit and push.
+
+Summary:
+1. Primary Request and Intent:
+   - User wanted to create a skill (`kakomon-split-gha`) for running math question splitting (大問分割) via GitHub Actions, monitoring until completion, and providing the GitHub Actions URL
+   - User wanted to verify if Gemini's topic tagging (Phase 3) was accurate, using Sonnet as a cross-checker
+   - After discovering Gemini's tagging was poor (0/3 correct), user wanted to optimize the pipeline: Gemini for PDF reading/splitting (what it's good at), Sonnet via Task tool for topic tagging (what it's good at, and free via subscription)
+   - User wanted all LLM model names removed from hardcoded values, with errors on missing env vars
+   - User wanted all remaining tasks completed: `--skip-tags` flag, prompt improvements, DB updates, commit + push
+
+2. Key Technical Concepts:
+   - **2-model cross-check architecture**: Gemini for visual/PDF tasks, Sonnet for reasoning/classification
+   - **GitHub Actions workflow modes**: single, batch, scan (with new year/exam_type filters), list
+   - **Scan mode variant auto-detection**: R2 scan finds `math_rikei`, `math_bunkei` etc. automatically
+   - **Topic tagging quality**: Gemini confuses "core themes" vs "auxiliary computation techniques"
+   - **Prompt engineering limitations**: Subject-specific examples overfit; Step 1/Step 2 framework alone insufficient
+   - **Cost optimization**: Gemini Flash free tier (250 RPD) sufficient for Phase 1+4 only; Sonnet via Claude Code subscription (zero API cost)
+   - **LLM model name policy**: Never hardcode model names; always read from env vars with error on missing
+
+3. Files and Code Sections:
+
+   - **`~/.claude/skills/kakomon-split-gha/SKILL.md`** (CREATED)
+     - New skill for GHA-based question splitting with Phase 5 Sonnet cross-check
+     - Includes scan mode recommendation for variant-bearing subjects
+     - Phase 5 details: data collection from DB/R2, Sonnet parallel verification via Task tool, DB update
+
+   - **`~/.claude/CLAUDE.md`** (MODIFIED)
+     - Added skill trigger: `「大問分割」「GHAで分割」「splitをGHAで」「○○の数学を分割」 | /kakomon-split-gha`
+     - Added LLM model name rule:
+     ```
+     ## LLMモデル名（厳守）
+     - モデル名（Gemini, Claude等）をソースコードにハードコードするな
+     - 必ず環境変数から読み出し、未設定時はエラーで停止させる
+     - フォールバックのデフォルト値も禁止（`?? "gemini-xxx"` 等）
+     ```
+
+   - **`/home/stsrjkt/kakomon-generator/CLAUDE.md`** (MODIFIED)
+     - Updated env vars section: `GEMINI_VISION_MODEL=  # 必須。モデル名は絶対にハードコードしない`
+     - Added LLM model name rule section with rationale
+
+   - **`src/lib/gemini.ts`** (MODIFIED)
+     - Removed hardcoded fallback `?? "gemini-3-flash-preview"`
+     - Changed to error-on-missing:
+     ```typescript
+     if (!process.env.GEMINI_VISION_MODEL) {
+       throw new Error("GEMINI_VISION_MODEL environment variable is required (do not hardcode model names)");
+     }
+     const modelName: string = process.env.GEMINI_VISION_MODEL;
+     ```
+
+   - **`src/phases/tag.ts`** (MODIFIED)
+     - Same model name fix as gemini.ts
+     - Replaced `TOPIC_SELECTION_RULES` constant with `buildTopicSelectionRules(_subject)` function
+     - Final version: Step 1/Step 2 framework WITHOUT subject-specific examples (confirmed via experiment that examples overfit)
+     ```typescript
+     function buildTopicSelectionRules(_subject: string): string {
+       return `【トピック選択ルール - 厳守】
+     タグは少なく正確に。以下の手順で選択すること。
+
+     ■ Step 1: まず問題の本質を一言で説明する
+     「この問題は何の問題か？」を一言で説明してください。
+
+     ■ Step 2: Step 1 の説明に直接対応するトピックのみ選ぶ
+     Step 1 の説明に登場するキーワードに対応するトピックだけをマスターリストから選ぶ。
+     Step 1 に登場しないテーマのトピックは選ばない。
+
+     ■ 核心テーマ vs 補助的手法
+     ○ 核心 = その大問固有のテーマ。これがなければ別の問題になる
+     × 補助 = 多くの問題で汎用的に使う計算道具。なくても問題の個性は変わらない
+     判断:「この問題を知らない人に『何の問題？』と聞かれて答える内容」に含まれるか？
+       → 含まれる → タグを付ける
+       → 含まれない → タグを付けない
+
+     ■ その他のルール
+     - 同じサブ単元（第4階層）のトピックは最も代表的なもの1つだけ選ぶ
+     - 1つの大問につきトピックは1〜4個を目安とする（多くても5個まで）`;
+     }
+     ```
+     - Updated `buildCachedInstruction` to use `buildTopicSelectionRules(subject)`
+     - Updated per-question prompt (cache mode) to include Step 1/Step 2 instruction
+
+   - **`src/index.ts`** (MODIFIED)
+     - Added `--skip-tags` flag support for Phase 3 skipping:
+     ```typescript
+     let tagResults: import("./types.js").TagResult[] = [];
+     if (options.skipTags) {
+       console.log("-- Phase 3: トピック付け（スキップ: --skip-tags） --\n");
+       tagResults = splitResults.map((s) => ({
+         label: s.label,
+         questionNumber: s.questionNumber,
+         topicTags: [],
+       }));
+     } else {
+       console.log("-- Phase 3: トピック付け -------------------------");
+       const subjectName = resolveSubjectName(options.subject);
+       tagResults = await tagQuestions(splitResults, subjectName);
+       console.log(`  タグ付け完了: ${tagResults.length}件\n`);
+     }
+     ```
+     - Added CLI arg parsing: `skipTags: args.includes("--skip-tags")`
+
+   - **`src/types.ts`** (MODIFIED)
+     - Added `skipTags?: boolean` to `CliOptions` interface
+
+   - **`.github/workflows/generate.yml`** (MODIFIED)
+     - Added year and exam_type filters to scan mode (committed + pushed as `864c666`)
+     - Added `--skip-tags` to all 3 `node dist/index.js` invocations
+
+   - **`~/.claude/projects/-home-stsrjkt-kakomon-generator/memory/MEMORY.md`** (not yet updated with session findings)
+
+   - Files DELETED: `src/phases/tag-verify.ts`, `scripts/test-tag-verify.ts`, `scripts/test-tag-prompt.ts` (API-based Sonnet verification approach abandoned)
+   - Package: `@anthropic-ai/sdk` installed then uninstalled
+
+4. Errors and Fixes:
+   - **GHA run failed (404)**: osaka/2025/math/zenki/problem.pdf not found in R2. Root cause: osaka has variant-based paths (math_bunkei, math_rikei). Fixed by using scan mode which auto-discovers variants.
+   - **TypeScript build error after model name change**: `Type 'string | undefined' is not assignable to type 'string'`. Module-scope `const` with `if (!x) throw` doesn't narrow in TS. Fixed by reordering: `if (!process.env.X) throw` then `const x: string = process.env.X`.
+   - **User feedback on subject-specific prompt examples**: User correctly identified that examples like "解の公式 is auxiliary" were overfitting - they teach the answer rather than the reasoning. Experiment confirmed: removing examples regressed Q1 but Q2 stayed broken. Conclusion: examples overfit, Sonnet cross-check is the real solution.
+   - **User feedback on API costs**: Initially implemented Sonnet verification via @anthropic-ai/sdk. User said "apiでやると金がかかるから、だめ。このサブスクの範囲でなんとかして" → switched to Task tool (model: sonnet) approach.
+   - **User feedback on model name hardcoding**: "落ち着け、絶対にいじるなllmのモデル名を。フォールバックのやつはハードコードされてるのかな？" then "いや、カットしておいてそのフォールバック。エラーでいいの。llmはさっきキミもやった通り最新のモデル名をエラー扱いするからハードコードすると絶対にだめ。claude.mdにも書いてないですか？"
+
+5. Problem Solving:
+   - **Variant detection in GHA**: Solved by enhancing scan mode with year/exam_type filters
+   - **Topic tagging accuracy**: Gemini scored 0/3. Root cause: Gemini confuses core themes vs auxiliary techniques. Solution: move tagging to Sonnet (Task tool), keep Gemini for PDF reading only
+   - **Prompt improvement experiment**: Tested 3 versions (old, with subject examples, without). Proved examples overfit and Step 1/Step 2 alone insufficient → confirmed Sonnet cross-check is necessary
+   - **Cost optimization**: Gemini Flash free tier (250 RPD) sufficient for Phase 1+4 (2 calls/doc). Sonnet via subscription = zero cost. Phase 3 removal eliminates 3-5 Gemini calls per document
+
+6. All User Messages:
+   - "数学の大問分割をやりたいんだけど、先にgithub actionで実施して監視して完了まで見届けて（~/.config/gh/hosts.yml に GitHub トークン）進捗をみたいので githubの確認画面のurl、みたいなスキルとして大問分割スキルを作りたい。"
+   - Selected: single mode, math subject
+   - Selected: osaka, 2025, zenki
+   - "長期的な視点、他の教科もやるときの視点で考えるとどうするのがいいの？"
+   - "じゃ今やってくれた文系数学の大問分割のトピック付が妥当かどうかsonnetに判定させてほしい。トピック付のルールをふまえて"
+   - "これ、もともとのダグに問題がある？それともgeminiに問題がある？"
+   - "ワークフローの改善提案をして"
+   - "geminiのプロンプト改善には賛成なんだけど、キャパオーバーにならない？大問分割の位置みたいのを一緒に頼んでなかったっけ？"
+   - "３番のgeminiの設定はちゃんとthink high , agentic visionになってる？"
+   - "Model名はハードコードされずにenvから読み出して最新モデルを使うようになってる？"
+   - "落ち着け、絶対にいじるなllmのモデル名を。フォールバックのやつはハードコードされてるのかな？"
+   - "いや、カットしておいてそのフォールバック。エラーでいいの。llmはさっきキミもやった通り最新のモデル名をエラー扱いするからハードコードすると絶対にだめ。claude.mdにも書いてないですか？"
+   - "おねがいします" (add rule to CLAUDE.md)
+   - "そしたら、ワークフローの改善に戻ろう。geminiのプロンプト改善案は？"
+   - "教科別のプロンプトが必要じゃない？"
+   - "じゃ、それでさっきの大阪大学のトピック付が改善できるか実験して"
+   - "でも、冷静に考えると、...という部分で思考を助けてしまっただけってことはない？"
+   - "ここ自体は放置でいいの？ここをカットしたバージョンで実験してみて"
+   - "gemini→sonnetが一番いいよね？sonetに全任せしてもやっぱりチェックどうするの問題が残るよな？"
+   - "じゃ、具体例のプロンプトはどの教科も不要ということかな？sonnetチェックをいれるならば"
+   - "そうしてください" (keep Step 1/2 without examples, implement Sonnet check)
+   - "apiでやると金がかかるから、だめ。このサブスクの範囲でなんとかして"
+   - "おねがい" (run Phase 5 Sonnet verification on osaka data)
+   - "聞きたいことは２つ。１つめ：sonetのトピック付はあなた（opus4.6）から見ても妥当ですか？２つめ：geminiのトピック付いる？もはや無駄なプロセスにしか見えない"
+   - "適材適所で、api料金を最適化できた？sonnetはpdfの読み取りは弱いでしょ？"
+   - "gemini flashなんだけど、geminiのサブスクプランで同じような仕事をさせるようにできない？"
+   - "なるほどね、トピック付にかなりapi料金を使ってたのかな？最新の無料枠の情報検索して"
+   - "了解です。どこまで話したんだっけ？sonnetのチェックだけになったんだっけか？"
+   - "index.ts に Phase 3 スキップのフラグ追加（GHA 用）  なんだけど、これでgeminiがトピック付けしなくなるってことでいい？"
+   - "おねがいします。じゃ残タスクを完了させてください"
+
+7. Pending Tasks:
+   - **Commit + push all changes** (index.ts, types.ts, tag.ts, gemini.ts, generate.yml, CLAUDE.md, package.json/lock)
+   - **Update MEMORY.md** with session findings (new architecture, prompt patterns, etc.)
+
+8. Current Work:
+   Working through the "残タスク" (remaining tasks) list:
+   - ✅ `index.ts` に Phase 3 スキップのフラグ追加 (`--skip-tags`)
+   - ✅ GHA ワークフローに `--skip-tags` 追加 (all 3 invocations)
+   - ✅ TypeScript ビルド成功
+   - ✅ 大阪大学文系数学の DB 更新 (all 3 questions returned HTTP 204)
+   - ⬜ プロンプト改善版の tag.ts を commit + push (still uncommitted)
+
+   The DB was just updated with Sonnet-recommended tags:
+   - Q1: `["数学/数学Ｃ/ベクトル/平面ベクトル/垂直条件・平行条件", "数学/数学Ｃ/ベクトル/平面ベクトル/交点の位置ベクトル", "数学/数学Ｃ/ベクトル/平面ベクトル/位置ベクトル"]`
+   - Q2: `["数学/数学Ⅱ/式と証明/証明/等式の証明", "数学/数学B/数列/数学的帰納法/等式の証明"]`
+   - Q3: `["数学/数学Ⅱ/微分法と積分法/微分/接線の方程式", "数学/数学Ⅱ/微分法と積分法/面積/上の式引く下の式", "数学/数学Ⅱ/微分法と積分法/微分/3次関数の最大・最小"]`
+
+9. Optional Next Step:
+   Commit and push all uncommitted changes. The user said "残タスクを完了させてください" and the remaining item from the task list is committing the code changes. Files to commit:
+   - `src/index.ts` (--skip-tags flag)
+   - `src/types.ts` (skipTags option)
+   - `src/phases/tag.ts` (prompt improvement, model name fix)
+   - `src/lib/gemini.ts` (model name fix)
+   - `.github/workflows/generate.yml` (--skip-tags, scan filters)
+   - `CLAUDE.md` (LLM model name rule)
+   - `package.json` / `package-lock.json` (@anthropic-ai/sdk removed)
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/stsrjkt/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
