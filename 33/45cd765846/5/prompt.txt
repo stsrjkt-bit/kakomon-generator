@@ -1,0 +1,1143 @@
+数学の大問分割をやりたいんだけど、先にgithub actionで実施して監視して完了まで見届けて（~/.config/gh/hosts.yml に GitHub トークン）進捗をみたいので githubの確認画面のurl、みたいなスキルとして大問分割スキルを作りたい。
+
+---
+
+じゃ今やってくれた文系数学の大問分割のトピック付が妥当かどうかsonnetに判定させてほしい。トピック付のルールをふまえて
+
+---
+
+これ、もともとのダグに問題がある？それともgeminiに問題がある？
+
+---
+
+とりあえず確認だけやって
+
+---
+
+ワークフローの改善提案をして
+
+---
+
+gemini→sonnetが一番いいよね？sonetに全任せしてもやっぱりチェックどうするの問題が残るよな？
+
+---
+
+geminiのプロンプト改善には賛成なんだけど、キャパオーバーにならない？大問分割の位置みたいのを一緒に頼んでなかったっけ？
+
+---
+
+３番のgeminiの設定はちゃんとthink high , agentic visionになってる？
+
+---
+
+Model名はハードコードされずにenvから読み出して最新モデルを使うようになってる？
+
+---
+
+落ち着け、絶対にいじるなllmのモデル名を。フォールバックのやつはハードコードされてるのかな？
+
+---
+
+いや、カットしておいてそのフォールバック。エラーでいいの。llmはさっきキミもやった通り最新のモデル名をエラー扱いするからハードコードすると絶対にだめ。claude.mdにも書いてないですか？
+
+---
+
+おねがいします
+
+---
+
+そしたら、ワークフローの改善に戻ろう。geminiのプロンプト改善案は？
+
+---
+
+教科別のプロンプトが必要じゃない？
+
+---
+
+じゃ、それでさっきの大阪大学のトピック付が改善できるか実験して
+
+---
+
+でも、冷静に考えると、"数学": `■ 核心 vs 補助の区別（数学）
+  ○ 核心: その大問固有のテーマ（例: 垂直条件、数学的帰納法、接線の方程式、面積）
+  × 補助: 多くの問題で使う汎用計算道具（例: 解の公式、因数分解、判別式、定積分計算、2次方程式の解法）
+  判断: 「何の問題？」と聞かれて答えに含まれるか？含まれなければ補助。`,という部分で思考を助けてしまっただけってことはない？
+
+---
+
+"数学": `■ 核心 vs 補助の区別（数学）
+  ○ 核心: その大問固有のテーマ（例: 垂直条件、数学的帰納法、接線の方程式、面積）
+  × 補助: 多くの問題で使う汎用計算道具（例: 解の公式、因数分解、判別式、定積分計算、2次方程式の解法）
+  判断: 「何の問題？」と聞かれて答えに含まれるか？含まれなければ補助。`,ここ自体は放置でいいの？ここをカットしたバージョンで実験してみて
+
+---
+
+じゃ、具体例のプロンプトはどの教科も不要ということかな？sonnetチェックをいれるならば
+
+---
+
+そうしてください
+
+---
+
+apiでやると金がかかるから、だめ。このサブスクの範囲でなんとかして
+
+---
+
+おねがい
+
+---
+
+聞きたいことは２つ。１つめ：sonetのトピック付はあなた（opus4.6）から見ても妥当ですか？２つめ：geminiのトピック付いる？もはや無駄なプロセスにしか見えない
+
+---
+
+適材適所で、api料金を最適化できた？sonnetはpdfの読み取りは弱いでしょ？
+
+---
+
+gemini flashなんだけど、geminiのサブスクプランで同じような仕事をさせるようにできない？
+
+---
+
+なるほどね、トピック付にかなりapi料金を使ってたのかな？最新の無料枠の情報検索して
+
+---
+
+了解です。どこまで話したんだっけ？sonnetのチェックだけになったんだっけか？
+
+---
+
+index.ts に Phase 3 スキップのフラグ追加（GHA 用）  なんだけど、これでgeminiがトピック付けしなくなるってことでいい？
+
+---
+
+おねがいします。じゃ残タスクを完了させてください
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation:
+
+1. User wants to create a skill for running math question splitting (大問分割) via GitHub Actions, monitor it, and get the GitHub URL.
+
+2. I explored the codebase - existing skills, GHA workflows, CLI entry point, package.json, gh CLI config.
+
+3. Created the `kakomon-split-gha` skill at `~/.claude/skills/kakomon-split-gha/SKILL.md` and added it to the CLAUDE.md trigger table.
+
+4. User wanted to run osaka/2025/math/zenki in single mode. First attempt failed because R2 path was `osaka/2025/math_bunkei/zenki/problem.pdf` (variant), not `osaka/2025/math/zenki/problem.pdf`.
+
+5. User asked for long-term solution - I added year and exam_type filters to scan mode in generate.yml. Committed and pushed.
+
+6. Re-ran with scan mode - successfully found math_bunkei and math_rikei variants, both completed successfully.
+
+7. User wanted Sonnet to verify topic tags for math_bunkei. I downloaded question images from R2, extracted math topics from master list, and launched 3 Sonnet agents in parallel to verify.
+
+8. Sonnet found all 3 questions NEEDS_FIX:
+   - Q1: "解の公式" was wrong, missing "内積", "一直線上の点"
+   - Q2: "基本4パターン" was wrong
+   - Q3: Missing "接線の方程式"
+
+9. User asked if the problem was with tags or Gemini - I confirmed Gemini's reasoning was the issue, not the master list.
+
+10. User asked for workflow improvement proposals. I proposed 3 layers: A) Prompt improvement, B) Sonnet verification step, C) Tag quality dashboard.
+
+11. User agreed Gemini→Sonnet cross-check is best approach.
+
+12. User asked about Phase 3 Gemini settings - confirmed ThinkingLevel.HIGH and codeExecution are set, no agentic behavior.
+
+13. User asked about model name hardcoding - found fallback `"gemini-3-flash-preview"` hardcoded in gemini.ts and tag.ts. User firmly said to cut it - make it error instead. I removed fallbacks, added error throws. Also added rules to both CLAUDE.md files prohibiting hardcoded model names.
+
+14. Prompt improvement discussion:
+    - Created TOPIC_SELECTION_RULES with Step 1/Step 2 framework + subject-specific examples
+    - Tested with subject-specific examples: Q1 improved significantly
+    - User pointed out the examples might be "teaching the answer" (overfitting)
+    - Tested without subject-specific examples: Q1 regressed, Q2 still broken
+    - Confirmed: examples were overfitting, Step 1/Step 2 alone doesn't fundamentally fix Gemini
+    - User asked if subject-specific examples are needed if Sonnet checks - agreed they're not needed
+
+15. Implemented Sonnet cross-check:
+    - First tried API-based approach with @anthropic-ai/sdk
+    - User said NO to API costs - use Claude Code subscription (Task tool) instead
+    - Removed @anthropic-ai/sdk, deleted tag-verify.ts and test scripts
+    - Updated skill SKILL.md with Phase 5 (Sonnet cross-check via Task tool)
+
+16. User asked if Gemini tagging is even needed - I agreed Sonnet alone is better since Gemini was 0/3 accuracy.
+
+17. User pointed out Sonnet is weak at PDF reading but Gemini is strong at it - so keep Gemini for PDF tasks, Sonnet for reasoning.
+
+18. Final architecture decided:
+    - GHA (Gemini): Phase 1+2+4 (PDF reading, splitting) - skip Phase 3
+    - Local (Sonnet Task tool): Topic tagging from cropped PNGs + DB update
+
+19. User asked about using Gemini subscription instead of API - I researched and found Gemini Flash free tier (250 RPD) is more than enough with Phase 3 removed (only 2 calls per document).
+
+20. User asked to complete remaining tasks. I did:
+    - Added `--skip-tags` flag to index.ts and types.ts
+    - Added `--skip-tags` to all 3 `node dist/index.js` calls in generate.yml
+    - Fixed TypeScript build errors (module-scope const narrowing)
+    - Updated DB with Sonnet-recommended tags for osaka math_bunkei (all 3 returned 204)
+
+Remaining tasks from the list:
+- ✅ index.ts Phase 3 skip flag
+- ✅ DB update for osaka math_bunkei
+- Still need: commit + push all changes
+
+Let me check what was committed vs uncommitted:
+- Committed: scan mode year/exam_type filter (pushed)
+- Uncommitted: tag.ts prompt changes, gemini.ts model name changes, index.ts skip-tags, types.ts, generate.yml skip-tags, CLAUDE.md changes, package.json (removed @anthropic-ai/sdk)
+
+The user said "残タスクを完了させてください" and I was working through the list. DB update just completed (204 all). Still need to commit and push.
+
+Summary:
+1. Primary Request and Intent:
+   - User wanted to create a skill (`kakomon-split-gha`) for running math question splitting (大問分割) via GitHub Actions, monitoring until completion, and providing the GitHub Actions URL
+   - User wanted to verify if Gemini's topic tagging (Phase 3) was accurate, using Sonnet as a cross-checker
+   - After discovering Gemini's tagging was poor (0/3 correct), user wanted to optimize the pipeline: Gemini for PDF reading/splitting (what it's good at), Sonnet via Task tool for topic tagging (what it's good at, and free via subscription)
+   - User wanted all LLM model names removed from hardcoded values, with errors on missing env vars
+   - User wanted all remaining tasks completed: `--skip-tags` flag, prompt improvements, DB updates, commit + push
+
+2. Key Technical Concepts:
+   - **2-model cross-check architecture**: Gemini for visual/PDF tasks, Sonnet for reasoning/classification
+   - **GitHub Actions workflow modes**: single, batch, scan (with new year/exam_type filters), list
+   - **Scan mode variant auto-detection**: R2 scan finds `math_rikei`, `math_bunkei` etc. automatically
+   - **Topic tagging quality**: Gemini confuses "core themes" vs "auxiliary computation techniques"
+   - **Prompt engineering limitations**: Subject-specific examples overfit; Step 1/Step 2 framework alone insufficient
+   - **Cost optimization**: Gemini Flash free tier (250 RPD) sufficient for Phase 1+4 only; Sonnet via Claude Code subscription (zero API cost)
+   - **LLM model name policy**: Never hardcode model names; always read from env vars with error on missing
+
+3. Files and Code Sections:
+
+   - **`~/.claude/skills/kakomon-split-gha/SKILL.md`** (CREATED)
+     - New skill for GHA-based question splitting with Phase 5 Sonnet cross-check
+     - Includes scan mode recommendation for variant-bearing subjects
+     - Phase 5 details: data collection from DB/R2, Sonnet parallel verification via Task tool, DB update
+
+   - **`~/.claude/CLAUDE.md`** (MODIFIED)
+     - Added skill trigger: `「大問分割」「GHAで分割」「splitをGHAで」「○○の数学を分割」 | /kakomon-split-gha`
+     - Added LLM model name rule:
+     ```
+     ## LLMモデル名（厳守）
+     - モデル名（Gemini, Claude等）をソースコードにハードコードするな
+     - 必ず環境変数から読み出し、未設定時はエラーで停止させる
+     - フォールバックのデフォルト値も禁止（`?? "gemini-xxx"` 等）
+     ```
+
+   - **`/home/stsrjkt/kakomon-generator/CLAUDE.md`** (MODIFIED)
+     - Updated env vars section: `GEMINI_VISION_MODEL=  # 必須。モデル名は絶対にハードコードしない`
+     - Added LLM model name rule section with rationale
+
+   - **`src/lib/gemini.ts`** (MODIFIED)
+     - Removed hardcoded fallback `?? "gemini-3-flash-preview"`
+     - Changed to error-on-missing:
+     ```typescript
+     if (!process.env.GEMINI_VISION_MODEL) {
+       throw new Error("GEMINI_VISION_MODEL environment variable is required (do not hardcode model names)");
+     }
+     const modelName: string = process.env.GEMINI_VISION_MODEL;
+     ```
+
+   - **`src/phases/tag.ts`** (MODIFIED)
+     - Same model name fix as gemini.ts
+     - Replaced `TOPIC_SELECTION_RULES` constant with `buildTopicSelectionRules(_subject)` function
+     - Final version: Step 1/Step 2 framework WITHOUT subject-specific examples (confirmed via experiment that examples overfit)
+     ```typescript
+     function buildTopicSelectionRules(_subject: string): string {
+       return `【トピック選択ルール - 厳守】
+     タグは少なく正確に。以下の手順で選択すること。
+
+     ■ Step 1: まず問題の本質を一言で説明する
+     「この問題は何の問題か？」を一言で説明してください。
+
+     ■ Step 2: Step 1 の説明に直接対応するトピックのみ選ぶ
+     Step 1 の説明に登場するキーワードに対応するトピックだけをマスターリストから選ぶ。
+     Step 1 に登場しないテーマのトピックは選ばない。
+
+     ■ 核心テーマ vs 補助的手法
+     ○ 核心 = その大問固有のテーマ。これがなければ別の問題になる
+     × 補助 = 多くの問題で汎用的に使う計算道具。なくても問題の個性は変わらない
+     判断:「この問題を知らない人に『何の問題？』と聞かれて答える内容」に含まれるか？
+       → 含まれる → タグを付ける
+       → 含まれない → タグを付けない
+
+     ■ その他のルール
+     - 同じサブ単元（第4階層）のトピックは最も代表的なもの1つだけ選ぶ
+     - 1つの大問につきトピックは1〜4個を目安とする（多くても5個まで）`;
+     }
+     ```
+     - Updated `buildCachedInstruction` to use `buildTopicSelectionRules(subject)`
+     - Updated per-question prompt (cache mode) to include Step 1/Step 2 instruction
+
+   - **`src/index.ts`** (MODIFIED)
+     - Added `--skip-tags` flag support for Phase 3 skipping:
+     ```typescript
+     let tagResults: import("./types.js").TagResult[] = [];
+     if (options.skipTags) {
+       console.log("-- Phase 3: トピック付け（スキップ: --skip-tags） --\n");
+       tagResults = splitResults.map((s) => ({
+         label: s.label,
+         questionNumber: s.questionNumber,
+         topicTags: [],
+       }));
+     } else {
+       console.log("-- Phase 3: トピック付け -------------------------");
+       const subjectName = resolveSubjectName(options.subject);
+       tagResults = await tagQuestions(splitResults, subjectName);
+       console.log(`  タグ付け完了: ${tagResults.length}件\n`);
+     }
+     ```
+     - Added CLI arg parsing: `skipTags: args.includes("--skip-tags")`
+
+   - **`src/types.ts`** (MODIFIED)
+     - Added `skipTags?: boolean` to `CliOptions` interface
+
+   - **`.github/workflows/generate.yml`** (MODIFIED)
+     - Added year and exam_type filters to scan mode (committed + pushed as `864c666`)
+     - Added `--skip-tags` to all 3 `node dist/index.js` invocations
+
+   - **`~/.claude/projects/-home-stsrjkt-kakomon-generator/memory/MEMORY.md`** (not yet updated with session findings)
+
+   - Files DELETED: `src/phases/tag-verify.ts`, `scripts/test-tag-verify.ts`, `scripts/test-tag-prompt.ts` (API-based Sonnet verification approach abandoned)
+   - Package: `@anthropic-ai/sdk` installed then uninstalled
+
+4. Errors and Fixes:
+   - **GHA run failed (404)**: osaka/2025/math/zenki/problem.pdf not found in R2. Root cause: osaka has variant-based paths (math_bunkei, math_rikei). Fixed by using scan mode which auto-discovers variants.
+   - **TypeScript build error after model name change**: `Type 'string | undefined' is not assignable to type 'string'`. Module-scope `const` with `if (!x) throw` doesn't narrow in TS. Fixed by reordering: `if (!process.env.X) throw` then `const x: string = process.env.X`.
+   - **User feedback on subject-specific prompt examples**: User correctly identified that examples like "解の公式 is auxiliary" were overfitting - they teach the answer rather than the reasoning. Experiment confirmed: removing examples regressed Q1 but Q2 stayed broken. Conclusion: examples overfit, Sonnet cross-check is the real solution.
+   - **User feedback on API costs**: Initially implemented Sonnet verification via @anthropic-ai/sdk. User said "apiでやると金がかかるから、だめ。このサブスクの範囲でなんとかして" → switched to Task tool (model: sonnet) approach.
+   - **User feedback on model name hardcoding**: "落ち着け、絶対にいじるなllmのモデル名を。フォールバックのやつはハードコードされてるのかな？" then "いや、カットしておいてそのフォールバック。エラーでいいの。llmはさっきキミもやった通り最新のモデル名をエラー扱いするからハードコードすると絶対にだめ。claude.mdにも書いてないですか？"
+
+5. Problem Solving:
+   - **Variant detection in GHA**: Solved by enhancing scan mode with year/exam_type filters
+   - **Topic tagging accuracy**: Gemini scored 0/3. Root cause: Gemini confuses core themes vs auxiliary techniques. Solution: move tagging to Sonnet (Task tool), keep Gemini for PDF reading only
+   - **Prompt improvement experiment**: Tested 3 versions (old, with subject examples, without). Proved examples overfit and Step 1/Step 2 alone insufficient → confirmed Sonnet cross-check is necessary
+   - **Cost optimization**: Gemini Flash free tier (250 RPD) sufficient for Phase 1+4 (2 calls/doc). Sonnet via subscription = zero cost. Phase 3 removal eliminates 3-5 Gemini calls per document
+
+6. All User Messages:
+   - "数学の大問分割をやりたいんだけど、先にgithub actionで実施して監視して完了まで見届けて（~/.config/gh/hosts.yml に GitHub トークン）進捗をみたいので githubの確認画面のurl、みたいなスキルとして大問分割スキルを作りたい。"
+   - Selected: single mode, math subject
+   - Selected: osaka, 2025, zenki
+   - "長期的な視点、他の教科もやるときの視点で考えるとどうするのがいいの？"
+   - "じゃ今やってくれた文系数学の大問分割のトピック付が妥当かどうかsonnetに判定させてほしい。トピック付のルールをふまえて"
+   - "これ、もともとのダグに問題がある？それともgeminiに問題がある？"
+   - "ワークフローの改善提案をして"
+   - "geminiのプロンプト改善には賛成なんだけど、キャパオーバーにならない？大問分割の位置みたいのを一緒に頼んでなかったっけ？"
+   - "３番のgeminiの設定はちゃんとthink high , agentic visionになってる？"
+   - "Model名はハードコードされずにenvから読み出して最新モデルを使うようになってる？"
+   - "落ち着け、絶対にいじるなllmのモデル名を。フォールバックのやつはハードコードされてるのかな？"
+   - "いや、カットしておいてそのフォールバック。エラーでいいの。llmはさっきキミもやった通り最新のモデル名をエラー扱いするからハードコードすると絶対にだめ。claude.mdにも書いてないですか？"
+   - "おねがいします" (add rule to CLAUDE.md)
+   - "そしたら、ワークフローの改善に戻ろう。geminiのプロンプト改善案は？"
+   - "教科別のプロンプトが必要じゃない？"
+   - "じゃ、それでさっきの大阪大学のトピック付が改善できるか実験して"
+   - "でも、冷静に考えると、...という部分で思考を助けてしまっただけってことはない？"
+   - "ここ自体は放置でいいの？ここをカットしたバージョンで実験してみて"
+   - "gemini→sonnetが一番いいよね？sonetに全任せしてもやっぱりチェックどうするの問題が残るよな？"
+   - "じゃ、具体例のプロンプトはどの教科も不要ということかな？sonnetチェックをいれるならば"
+   - "そうしてください" (keep Step 1/2 without examples, implement Sonnet check)
+   - "apiでやると金がかかるから、だめ。このサブスクの範囲でなんとかして"
+   - "おねがい" (run Phase 5 Sonnet verification on osaka data)
+   - "聞きたいことは２つ。１つめ：sonetのトピック付はあなた（opus4.6）から見ても妥当ですか？２つめ：geminiのトピック付いる？もはや無駄なプロセスにしか見えない"
+   - "適材適所で、api料金を最適化できた？sonnetはpdfの読み取りは弱いでしょ？"
+   - "gemini flashなんだけど、geminiのサブスクプランで同じような仕事をさせるようにできない？"
+   - "なるほどね、トピック付にかなりapi料金を使ってたのかな？最新の無料枠の情報検索して"
+   - "了解です。どこまで話したんだっけ？sonnetのチェックだけになったんだっけか？"
+   - "index.ts に Phase 3 スキップのフラグ追加（GHA 用）  なんだけど、これでgeminiがトピック付けしなくなるってことでいい？"
+   - "おねがいします。じゃ残タスクを完了させてください"
+
+7. Pending Tasks:
+   - **Commit + push all changes** (index.ts, types.ts, tag.ts, gemini.ts, generate.yml, CLAUDE.md, package.json/lock)
+   - **Update MEMORY.md** with session findings (new architecture, prompt patterns, etc.)
+
+8. Current Work:
+   Working through the "残タスク" (remaining tasks) list:
+   - ✅ `index.ts` に Phase 3 スキップのフラグ追加 (`--skip-tags`)
+   - ✅ GHA ワークフローに `--skip-tags` 追加 (all 3 invocations)
+   - ✅ TypeScript ビルド成功
+   - ✅ 大阪大学文系数学の DB 更新 (all 3 questions returned HTTP 204)
+   - ⬜ プロンプト改善版の tag.ts を commit + push (still uncommitted)
+
+   The DB was just updated with Sonnet-recommended tags:
+   - Q1: `["数学/数学Ｃ/ベクトル/平面ベクトル/垂直条件・平行条件", "数学/数学Ｃ/ベクトル/平面ベクトル/交点の位置ベクトル", "数学/数学Ｃ/ベクトル/平面ベクトル/位置ベクトル"]`
+   - Q2: `["数学/数学Ⅱ/式と証明/証明/等式の証明", "数学/数学B/数列/数学的帰納法/等式の証明"]`
+   - Q3: `["数学/数学Ⅱ/微分法と積分法/微分/接線の方程式", "数学/数学Ⅱ/微分法と積分法/面積/上の式引く下の式", "数学/数学Ⅱ/微分法と積分法/微分/3次関数の最大・最小"]`
+
+9. Optional Next Step:
+   Commit and push all uncommitted changes. The user said "残タスクを完了させてください" and the remaining item from the task list is committing the code changes. Files to commit:
+   - `src/index.ts` (--skip-tags flag)
+   - `src/types.ts` (skipTags option)
+   - `src/phases/tag.ts` (prompt improvement, model name fix)
+   - `src/lib/gemini.ts` (model name fix)
+   - `.github/workflows/generate.yml` (--skip-tags, scan filters)
+   - `CLAUDE.md` (LLM model name rule)
+   - `package.json` / `package-lock.json` (@anthropic-ai/sdk removed)
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/stsrjkt/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+そしたら、大阪大学の理系のトピックがまだ修正前なんじゃないの？
+
+---
+
+Q5はSonnetの指摘は正しいがマスターリストに適切なタグがないため現状維持。ということなんですが、マスターリストを育てていきたいので、生の過去問を見て「このタグ足りない！」って気づいてくれたのはお手柄なんですよ。タグの追加もスキルに含めてほしいですね。あとローカルに問題画像がどんどんたまるような設計にはなってないよね？
+
+---
+
+はい、おねがいします。ただ、マスターリストなんですが、kakomon-managerでも使ってるんですよね。つまり、生徒さんが画像をアップロードしてそれにトピック付するときのマスターリスト。この２つのマスターリストが常に一致していないとダメなんですよ。言いたいことわかりますか？
+
+---
+
+おすすめは？
+
+---
+
+おねがいします
+
+---
+
+動作確認済み？
+
+---
+
+大阪大学のさっきの理系数学も新しいトピックが付与されてるよね？
+
+---
+
+そしたら、kakomon-managerの過去問検索のトピック付のllmをproに変更する作業に移りたいんだけど、やり残したことない？
+
+---
+
+じゃ、掃除して。ちなみに /tmp/ ってどんな場所？
+
+---
+
+envから読み取る形式にして、gemini3.1proを呼び出すようにしてトピック付に。ハードコード禁止で。あと先にgoogleサービスの最新情報調べて。
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation:
+
+1. **Session start**: This is a continuation from a previous conversation that ran out of context. The summary from the previous session details extensive work on kakomon-generator including:
+   - Creating kakomon-split-gha skill
+   - Running osaka math splitting via GHA
+   - Sonnet cross-checking Gemini's topic tags (found 0/3 accuracy for bunkei)
+   - Architecture decision: Gemini for PDF reading, Sonnet for reasoning
+   - Adding --skip-tags flag
+   - Removing hardcoded model names
+   - Prompt improvements (Step 1/Step 2 framework)
+   - Committing and pushing changes
+
+2. **osaka math_rikei verification**: User pointed out that osaka rikei (理系数学) tags were still unchecked. I queried DB, downloaded 5 question images from R2, and launched 5 parallel Sonnet agents to verify.
+
+   Results:
+   - Q1: NEEDS_FIX (交点の位置ベクトル → 内積, 垂直条件, 一直線上の点)
+   - Q2: OK (極値, 変曲点, 軌跡)
+   - Q3: NEEDS_FIX (楕円→円の方程式, 積・商の微分 removed)
+   - Q4: NEEDS_FIX (定積分で表された関数→はさみうちの原理, 定積分と不等式)
+   - Q5: NEEDS_FIX (recommended tags 確率漸化式/連立漸化式 don't exist in master list)
+
+   Updated Q1, Q3, Q4 in DB. Q5 kept as-is due to missing master list tags.
+
+3. **Master list tag additions**: User said Sonnet finding missing tags is valuable and wanted this in the skill. Also asked about local image accumulation.
+
+4. **Two-repo sync problem**: User pointed out kakomon-manager also uses the topic master list, and the two must stay in sync. I explored both repos:
+   - kakomon-manager: tree format (nested objects)
+   - kakomon-generator: flat string array
+   - No sync mechanism existed
+
+5. **Solution decision**: I recommended sync script (option 1) over npm package (option 2). User agreed.
+
+6. **Implementation**:
+   - Added 3 new tags to kakomon-manager's topic-master.ts:
+     - 確率漸化式
+     - 連立漸化式
+     - 定積分と不等式
+   - Created `scripts/sync-topic-master.ts` in kakomon-generator
+   - Fixed ESM __dirname issue
+   - Ran sync successfully
+   - Updated skill SKILL.md with Phase 5e (tag addition flow) and 5f (temp file cleanup)
+   - Updated Q4 and Q5 DB tags with new tags
+   - Committed and pushed both repos
+
+7. **Verification**: User asked if it was tested. I verified:
+   - grep confirmed 3 new tags in generated file
+   - isValidTopic() returned true for all 3 new tags
+   - Existing tags still work
+   - getTopicsForSubject() returns correct counts
+   - Initially had ESM import issue with `npx tsx -e`, fixed by using absolute path
+
+8. **DB confirmation**: User asked if osaka rikei DB has new tags. Confirmed Q4 has 定積分と不等式, Q5 has 確率漸化式.
+
+9. **Transition check**: User asked about remaining work before moving to kakomon-manager LLM change. I checked git status, found no uncommitted changes for current work.
+
+10. **/tmp cleanup**: User asked what /tmp is. I explained and cleaned up 200MB of old audit/verify files.
+
+11. **kakomon-manager LLM change**: User wants to:
+    - Change topic tagging LLM to Gemini 3.1 Pro
+    - Use env vars (no hardcoding)
+    - Research latest Google service info first
+
+12. **Research completed**:
+    - WebSearch: `gemini-3.1-pro-preview` is the model name (released 2026/2/19)
+    - Explore agent found kakomon-manager's LLM setup:
+      - SDK: `@google/generative-ai` (old SDK)
+      - Already uses env vars: `GEMINI_PARSE_MODEL` (falls back to `GEMINI_VISION_MODEL`)
+      - Main function: `parseQuestions()` in `lib/gemini/client.ts`
+    - I read the full client.ts file to understand the implementation
+
+13. **Current state**: I've read client.ts and have all the information needed to make the change. The user's last message was asking me to:
+    - Make topic tagging use env var for model (already done!)
+    - Set it to call gemini-3.1-pro-preview
+    - No hardcoding
+    - Research latest Google info first (done)
+
+The key finding is that **the code already reads from env vars** (`GEMINI_PARSE_MODEL`). The change needed is:
+1. Set `GEMINI_PARSE_MODEL=gemini-3.1-pro-preview` in the environment (Netlify env vars)
+2. Possibly update the SDK from old `@google/generative-ai` to new `@google/genai` if the old one doesn't support gemini-3.1-pro-preview
+3. Update the topic granularity rules (currently still uses the old rules, not the Step 1/Step 2 framework)
+
+Actually wait - the user specifically said "envから読み取る形式にして、gemini3.1proを呼び出すようにしてトピック付に。ハードコード禁止で" - this suggests they want me to ensure the env var approach is in place and configure it to use gemini-3.1-pro-preview. Since the code already reads from env, the main work is:
+1. Verify/update the env configuration
+2. Possibly update the SDK
+3. The prompt improvement from kakomon-generator (Step 1/Step 2) should also be applied here
+
+Let me also note the user explicitly asked to research Google's latest info first, which I did via WebSearch.
+
+Summary:
+1. Primary Request and Intent:
+   - **Verify and fix osaka math_rikei (理系数学) topic tags** using Sonnet cross-check (same as was done for math_bunkei in previous session)
+   - **Add missing tags to master list** when Sonnet discovers gaps (確率漸化式, 連立漸化式, 定積分と不等式)
+   - **Create a sync mechanism** between kakomon-manager and kakomon-generator's topic master lists (single source of truth)
+   - **Include tag addition flow in the kakomon-split-gha skill** (Phase 5e)
+   - **Clean up /tmp** of old audit/verify temp files
+   - **Change kakomon-manager's topic tagging LLM to Gemini 3.1 Pro** (`gemini-3.1-pro-preview`), reading model name from env vars with no hardcoding
+   - Research latest Google Gemini service info before making the change
+
+2. Key Technical Concepts:
+   - **Two-model cross-check architecture**: Gemini for PDF reading/splitting, Sonnet (via Task tool) for topic tag verification
+   - **Topic master list sync**: kakomon-manager (tree format, source of truth) → kakomon-generator (flat array, auto-generated via sync script)
+   - **Gemini 3.1 Pro Preview**: Model name `gemini-3.1-pro-preview`, released 2026/2/19
+   - **kakomon-manager SDK**: Uses old `@google/generative-ai` (NOT `@google/genai`)
+   - **Environment-based model configuration**: `GEMINI_PARSE_MODEL` for topic tagging, `GEMINI_VISION_MODEL` as fallback
+   - **Topic granularity rules**: "核心テーマ vs 補助的手法" discrimination
+   - **ESM module compatibility**: `__dirname` not available in ESM, requires `fileURLToPath(import.meta.url)` workaround
+
+3. Files and Code Sections:
+
+   - **`/home/stsrjkt/kakomon-generator/scripts/sync-topic-master.ts`** (CREATED)
+     - Sync script that reads kakomon-manager's tree-format topic master and generates kakomon-generator's flat array
+     - Uses kakomon-manager's existing `getAllTopicFullPaths()` function
+     - Supports `--dry-run` to preview diff before writing
+     - Shows added/removed tags for review
+     ```typescript
+     import path from "node:path";
+     import fs from "node:fs";
+     import { fileURLToPath } from "node:url";
+     const __filename = fileURLToPath(import.meta.url);
+     const __dirname = path.dirname(__filename);
+     const MANAGER_ROOT = path.resolve(__dirname, "../../kakomon-manager");
+     const MANAGER_TOPIC_MASTER = path.join(MANAGER_ROOT, "lib/constants/topic-master.ts");
+     // ... dynamically imports manager module, calls getAllTopicFullPaths()
+     // generates flat array file with section comments per subject
+     ```
+
+   - **`/home/stsrjkt/kakomon-manager/lib/constants/topic-master.ts`** (MODIFIED)
+     - Source of truth for topic master list (tree format)
+     - Added 3 new tags:
+       - `確率漸化式` to `数学A/場合の数と確率/確率` array
+       - `連立漸化式` to `数学B/数列/漸化式` array
+       - `定積分と不等式` to `数学Ⅲ/積分法/定積分` array
+     - Committed and pushed as `e345c69`
+
+   - **`/home/stsrjkt/kakomon-generator/src/constants/topic-master.ts`** (AUTO-GENERATED via sync)
+     - Now 2842 topics (was 3038 — social studies restructured from 5-level to 4-level in manager)
+     - Header comment updated to warn against direct editing
+     - Committed and pushed as `e307285`
+
+   - **`/home/stsrjkt/.claude/skills/kakomon-split-gha/SKILL.md`** (MODIFIED)
+     - Added Phase 5e: Master list tag addition flow (正本→sync workflow)
+     - Added Phase 5f: Temp file cleanup rule
+     ```
+     ### 5e. マスターリスト欠落タグの追加
+     1. 報告: 欠落タグの一覧をユーザーに提示
+     2. ユーザー承認
+     3. 正本(kakomon-manager)に追加 → commit+push
+     4. 同期: npx tsx scripts/sync-topic-master.ts
+     5. ビルド確認
+     6. コミット
+     
+     ### 5f. 一時ファイルの削除
+     rm -rf /tmp/{university}-{subject}-verify
+     ```
+
+   - **`/home/stsrjkt/kakomon-manager/lib/gemini/client.ts`** (READ - preparation for LLM change)
+     - Main topic tagging implementation
+     - SDK: `@google/generative-ai` (old SDK)
+     - `getParseModel()` reads `GEMINI_PARSE_MODEL` env var, falls back to `GEMINI_VISION_MODEL`
+     - `parseQuestions()` at line 234: main function that calls Gemini for topic tagging
+     - Uses `TOPIC_GRANULARITY_RULES` (old format, not Step 1/Step 2)
+     - `postProcessQuestions()` validates tags against master list
+     ```typescript
+     export function getParseModel(): string {
+       if (parseModelCache) return parseModelCache;
+       const model = process.env.GEMINI_PARSE_MODEL || process.env.GEMINI_VISION_MODEL;
+       if (!model) {
+         throw new Error('GEMINI_PARSE_MODEL または GEMINI_VISION_MODEL のどちらかの環境変数を設定する必要があります');
+       }
+       parseModelCache = model;
+       return model;
+     }
+     ```
+
+   - **`/home/stsrjkt/.claude/projects/-home-stsrjkt-kakomon-generator/memory/MEMORY.md`** (UPDATED)
+     - Added "Topic Master Sync" section documenting the sync workflow
+
+4. Errors and Fixes:
+   - **ESM `__dirname` not defined**: `scripts/sync-topic-master.ts` initially used `__dirname` which is not available in ESM modules. Fixed by adding:
+     ```typescript
+     import { fileURLToPath } from "node:url";
+     const __filename = fileURLToPath(import.meta.url);
+     const __dirname = path.dirname(__filename);
+     ```
+   - **`npx tsx -e` with relative imports**: `import from "./src/constants/topic-master.js"` failed in eval mode. Fixed by using absolute path: `import from "/home/stsrjkt/kakomon-generator/src/constants/topic-master.ts"`
+   - **Sonnet hallucinated master list tags**: For Q4 and Q5, Sonnet recommended tags that didn't exist in the master list (確率漸化式, 連立漸化式, 定積分と不等式). Instead of discarding, user wanted these added to the master list — turning a "bug" into a feature.
+
+5. Problem Solving:
+   - **osaka math_rikei tag quality**: 3/5 questions had incorrect Gemini tags. Fixed via Sonnet cross-check + DB update.
+   - **Master list gaps**: Sonnet discovered 3 missing but important tags. Added to both repos via new sync workflow.
+   - **Two-repo sync**: Created sync script to ensure kakomon-manager (source of truth) and kakomon-generator (generated) stay in sync. Tested dry-run, actual run, re-run (no diff), and build.
+   - **/tmp accumulation**: Cleaned 200MB of old audit/verify files from past sessions.
+   - **Gemini 3.1 Pro research**: Found model name is `gemini-3.1-pro-preview` (released 2026/2/19). The kakomon-manager code already reads model from env vars, so the code change may be minimal — but SDK compatibility and prompt improvement need attention.
+
+6. All User Messages:
+   - "そしたら、大阪大学の理系のトピックがまだ修正前なんじゃないの？"
+   - "Q5はSonnetの指摘は正しいがマスターリストに適切なタグがないため現状維持。ということなんですが、マスターリストを育てていきたいので、生の過去問を見て「このタグ足りない！」って気づいてくれたのはお手柄なんですよ。タグの追加もスキルに含めてほしいですね。あとローカルに問題画像がどんどんたまるような設計にはなってないよね？"
+   - "はい、おねがいします。ただ、マスターリストなんですが、kakomon-managerでも使ってるんですよね。つまり、生徒さんが画像をアップロードしてそれにトピック付するときのマスターリスト。この２つのマスターリストが常に一致していないとダメなんですよ。言いたいことわかりますか？"
+   - "おすすめは？"
+   - "おねがいします" (implement sync script)
+   - "動作確認済み？"
+   - "大阪大学のさっきの理系数学も新しいトピックが付与されてるよね？"
+   - "そしたら、kakomon-managerの過去問検索のトピック付のllmをproに変更する作業に移りたいんだけど、やり残したことない？"
+   - "じゃ、掃除して。ちなみに /tmp/ ってどんな場所？"
+   - "envから読み取る形式にして、gemini3.1proを呼び出すようにしてトピック付に。ハードコード禁止で。あと先にgoogleサービスの最新情報調べて。"
+
+7. Pending Tasks:
+   - **Change kakomon-manager's topic tagging to use Gemini 3.1 Pro** (`gemini-3.1-pro-preview`):
+     - The code already reads from `GEMINI_PARSE_MODEL` env var
+     - Need to set env var (likely in Netlify) to `gemini-3.1-pro-preview`
+     - May need to verify old SDK `@google/generative-ai` supports this model
+     - Consider updating `TOPIC_GRANULARITY_RULES` in client.ts with the improved Step 1/Step 2 framework from kakomon-generator
+     - Consider if SDK migration from `@google/generative-ai` to `@google/genai` is needed
+
+8. Current Work:
+   I had just finished reading `/home/stsrjkt/kakomon-manager/lib/gemini/client.ts` (the full 506-line file) and completed the Google research (WebSearch found `gemini-3.1-pro-preview` as the model name). The user's request was:
+   
+   > "envから読み取る形式にして、gemini3.1proを呼び出すようにしてトピック付に。ハードコード禁止で。あと先にgoogleサービスの最新情報調べて。"
+   
+   Research is done. Implementation is next. Key findings:
+   - Model name: `gemini-3.1-pro-preview`
+   - client.ts already uses `getParseModel()` which reads `GEMINI_PARSE_MODEL` env var
+   - The env var just needs to be set to `gemini-3.1-pro-preview`
+   - Need to verify the old `@google/generative-ai` SDK supports this model, or migrate to `@google/genai`
+
+9. Optional Next Step:
+   Implement the Gemini 3.1 Pro change in kakomon-manager:
+   1. Check where env vars are configured (Netlify env vars / `.env` file)
+   2. Set `GEMINI_PARSE_MODEL=gemini-3.1-pro-preview`
+   3. Verify SDK compatibility — if `@google/generative-ai` doesn't support 3.1 Pro, migrate the topic tagging path to use `@google/genai`
+   4. Optionally update `TOPIC_GRANULARITY_RULES` with the Step 1/Step 2 framework
+   5. Test the change
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/stsrjkt/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+フォールバックでflashにつながるようになってない？ちゃんとllm接続エラーとして業務停止できるようになってる？低品質なものを出したくないから
+
+---
+
+じゃ、さっきの大阪大学のトピック付でsonnetとどれくらい差が出るか調べて。
+
+---
+
+いいですね、削除で
+
+---
+
+おねがいします
+
+---
+
+環境変数設定しました。大問分割のスキル名は何になったの？
+
+---
+
+そしたら、大阪大学の数学の/kakomon-split-ghaを残りの年度も実施してみて
+
+---
+
+Base directory for this skill: /home/stsrjkt/.claude/skills/kakomon-split-gha
+
+# 大問分割 GHA ワークフロー
+
+## 概要
+
+kakomon-generator の大問分割パイプライン（Phase 1〜5）を GitHub Actions で実行する。
+ローカルの Chromebook（RAM 2.6GB）では Gemini API 呼び出し＋画像処理がメモリ不足になりがちなため、
+GHA の ubuntu-latest（7GB RAM）で実行し、ローカルからは gh CLI で監視する。
+
+GHA 完了後、Sonnet（Task tool, model: sonnet）でトピックタグのクロスチェックを行い、
+Gemini のタグ付けミスを検出・修正する。
+
+## Hard Gates
+
+1. **プロジェクトルート**: `/home/stsrjkt/kakomon-generator`
+2. **gh 認証**: `~/.config/gh/hosts.yml` に GitHub トークンが必要。`gh auth status` で確認
+3. **リポジトリ**: `stsrjkt-bit/kakomon-generator`
+4. **ワークフローファイル**: `.github/workflows/generate.yml`
+5. **ビルドが最新であること**: ワークフローは `npm run build` → `node dist/index.js` を実行する。ローカルの変更が push されていなければ古いコードで動く。必ず Phase 1 で確認
+6. **R2 に対象 PDF が存在すること**: ワークフローは R2 から `{university}/{year}/{subject}/{exam_type}/problem.pdf` をダウンロードする。なければジョブ失敗
+
+## Phase 1: 事前確認
+
+### 1a. パラメータ確認
+
+ユーザーから以下を確認する（不足があれば質問）:
+
+| パラメータ | 必須 | 説明 | 例 |
+|-----------|------|------|-----|
+| mode | Yes | 実行モード | single, batch, scan, list |
+| university | single時 | 大学ID | akita |
+| universities | batch/scan時 | カンマ区切り大学リスト | akita,yamanashi,okayama |
+| subject | Yes | 科目名（英語キー） | math, physics, chemistry |
+| year | single/batch時 | 年度 | 2025 |
+| exam_type | single/batch時 | 試験種別 | zenki, kouki, chuki, ippan |
+| entries | list時 | JSON配列 | [{"university":"x","year":"y","exam_type":"z"}] |
+
+### 1b. ローカル変更の確認
+
+```bash
+cd /home/stsrjkt/kakomon-generator
+git status --short
+git log --oneline -1
+git log --oneline origin/main -1
+```
+
+ローカルの main と origin/main が一致していること。差分がある場合はユーザーに push するか確認。
+
+## Phase 2: ワークフロー起動
+
+### single モード
+
+```bash
+gh workflow run generate.yml \
+  -f mode=single \
+  -f university="{university}" \
+  -f subject="{subject}" \
+  -f year="{year}" \
+  -f exam_type="{exam_type}"
+```
+
+### batch モード
+
+```bash
+gh workflow run generate.yml \
+  -f mode=batch \
+  -f universities="{universities}" \
+  -f subject="{subject}" \
+  -f year="{year}" \
+  -f exam_type="{exam_type}"
+```
+
+### scan モード（バリアント自動検出、推奨）
+
+R2 をスキャンしてバリアント（math_rikei, math_bunkei 等）を自動発見する。
+バリアント付き科目には **single/batch ではなく scan を使う**。
+year と exam_type はオプションフィルタ（省略すると全年度・全試験種別）。
+
+```bash
+gh workflow run generate.yml \
+  -f mode=scan \
+  -f universities="{universities}" \
+  -f subject="{subject}" \
+  -f year="{year}" \
+  -f exam_type="{exam_type}"
+```
+
+例: 大阪大学 2025 前期の数学（rikei + bunkei を自動発見）:
+```bash
+gh workflow run generate.yml \
+  -f mode=scan \
+  -f universities="osaka" \
+  -f subject=math \
+  -f year=2025 \
+  -f exam_type=zenki
+```
+
+### list モード
+
+```bash
+gh workflow run generate.yml \
+  -f mode=list \
+  -f subject="{subject}" \
+  -f entries='{entries_json}'
+```
+
+### 起動直後にやること
+
+ワークフロー起動はすぐに完了するが、run ID が即座に取得できないことがある。
+5秒待ってから最新の run を取得:
+
+```bash
+sleep 5
+gh run list --workflow=generate.yml --limit=1 --json databaseId,status,url,createdAt
+```
+
+取得した URL を **即座にユーザーに提示する**:
+
+```
+GitHub Actions URL: https://github.com/stsrjkt-bit/kakomon-generator/actions/runs/{run_id}
+```
+
+## Phase 3: 監視
+
+`gh run watch` でリアルタイム監視する:
+
+```bash
+gh run watch {run_id} --exit-status
+```
+
+**注意**: `gh run watch` はジョブ完了まで待機するコマンド。timeout は 600秒（10分）に設定。
+single モードなら通常3〜8分で完了する。
+batch/scan は matrix の数×3〜8分かかる。max-parallel=10 で並列実行される。
+
+### タイムアウト時の対応
+
+10分で終わらない場合（batch/scan の大量実行時）:
+
+```bash
+gh run view {run_id} --json status,conclusion,jobs
+```
+
+で途中経過を確認し、ユーザーに報告する。
+まだ実行中なら再度 `gh run watch` するか、URL を提示して手動監視を促す。
+
+### matrix ジョブの進捗確認
+
+batch/scan/list モードでは複数ジョブが並列実行される:
+
+```bash
+# 全ジョブの状態一覧
+gh run view {run_id} --json jobs --jq '.jobs[] | "\(.name)\t\(.status)\t\(.conclusion)"'
+```
+
+## Phase 4: 結果確認
+
+### 成功時
+
+```bash
+gh run view {run_id} --json conclusion,jobs --jq '{conclusion, jobs: [.jobs[] | {name, conclusion}]}'
+```
+
+ユーザーに以下を報告:
+- 全ジョブの成功/失敗
+- 処理された大学×年度×科目の一覧
+- 失敗したジョブがあればログの要約
+
+### 失敗時
+
+失敗したジョブのログを取得:
+
+```bash
+# 失敗ジョブの特定
+gh run view {run_id} --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .name'
+
+# ログ取得（末尾50行）
+gh run view {run_id} --log-failed 2>&1 | tail -50
+```
+
+よくある失敗原因:
+- **R2 に PDF がない**: `fatal error: An error occurred (404)` → 対象の PDF を先に R2 にアップロードする必要あり
+- **Gemini API エラー**: `429 Too Many Requests` → rate limit。時間をおいて再実行
+- **Gemini 分類失敗**: JSON パースエラー → Phase 1 (detect) の Gemini レスポンスが壊れた。再実行で直ることが多い
+- **npm ci 失敗**: lockfile 不整合 → ローカルで `npm install` → push
+
+失敗原因を報告し、対処方法を提案する。
+
+## Phase 5: Sonnet クロスチェック（トピックタグ検証）
+
+GHA 完了後、Gemini が付与したトピックタグを Sonnet で検証する。
+**API ではなく Task tool (model: sonnet) を使う**（サブスク範囲内）。
+
+### 5a. データ収集
+
+処理された各 document について、kakomon_questions と切り出し画像を取得する:
+
+```bash
+# document_id の特定
+./scripts/with-env.sh bash -c '
+  curl -s "$SUPABASE_URL/rest/v1/kakomon_documents?university_id=eq.{university}&subject=eq.{subject_key}&exam_type=eq.{exam_type}&year=eq.{year}&content_type=eq.problem&select=id,subject_variant,pdf_storage_path" \
+    -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+    -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" | jq .
+'
+
+# questions 取得
+./scripts/with-env.sh bash -c '
+  curl -s "$SUPABASE_URL/rest/v1/kakomon_questions?document_id=eq.{doc_id}&select=id,question_number,question_label,topic_tags,split_image_path&order=question_number" \
+    -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+    -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" | jq .
+'
+
+# 切り出し画像を R2 からダウンロード
+VERIFY_DIR="/tmp/{university}-{subject}-verify"
+mkdir -p "$VERIFY_DIR"
+./scripts/with-env.sh npx tsx scripts/download-r2.ts \
+  --prefix "{university}/{year}/{subject_key}/{exam_type}/q" \
+  --out-dir "$VERIFY_DIR"
+```
+
+### 5b. Sonnet 並列検証
+
+**各大問に対して Task tool (model: sonnet) を並列起動する。**
+1メッセージで全問を同時に起動すること（直列にしない）。
+
+各 Sonnet エージェントへのプロンプトテンプレート:
+
+```
+あなたは大学入試の{subject}問題のトピック付けを検証する専門家です。
+
+## 問題画像
+Read tool で {image_path} を読んでください。
+
+## 現在のトピックタグ（Gemini 付与）
+{gemini_tags を番号付きリストで}
+
+## 検証タスク
+1. 画像の問題内容を確認する
+2. 各タグが「核心テーマ」か「補助的手法」か判定する
+   - 核心 = その問題固有のテーマ。なければ別の問題になる
+   - 補助 = 汎用的な計算道具。なくても問題の個性は変わらない
+   - 判断基準:「何の問題？」と聞かれて答えに含まれるか
+3. 漏れているタグがないか確認する
+
+## マスターリスト（抜粋: {subject}）
+{該当科目のトピック全リスト}
+
+## 出力（JSON のみ）
+{
+  "question_label": "{label}",
+  "problem_summary": "問題の一言要約",
+  "current_tags_assessment": [
+    {"tag": "...", "verdict": "OK/WRONG/PARTIAL", "reason": "..."}
+  ],
+  "missing_tags": [{"tag": "...", "reason": "..."}],
+  "recommended_tags": ["最終推奨タグ"],
+  "overall_verdict": "PASS/NEEDS_FIX"
+}
+```
+
+### 5c. 結果の集約と判定
+
+Sonnet の結果を集約してユーザーに報告する:
+
+| Q | Gemini タグ | Sonnet 推奨 | 一致 |
+|---|------------|------------|------|
+| 1 | ... | ... | ✅/⚠️/❌ |
+
+判定ルール:
+- **✅ 一致**: Gemini と Sonnet が同じタグ → そのまま
+- **⚠️ 部分一致**: 一部重複あり → Sonnet 側を採用
+- **❌ 不一致**: 完全に異なる → Sonnet 側を採用
+
+### 5d. DB 修正（NEEDS_FIX がある場合）
+
+Sonnet の推奨タグで DB を更新する:
+
+```bash
+./scripts/with-env.sh bash -c '
+  curl -s -o /dev/null -w "%{http_code}" -X PATCH \
+    "$SUPABASE_URL/rest/v1/kakomon_questions?id=eq.{question_id}" \
+    -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+    -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+    -H "Content-Type: application/json" \
+    -H "Prefer: return=minimal" \
+    -d "{\"topic_tags\": [\"tag1\", \"tag2\"]}"
+'
+```
+
+**必ず dry-run 的に修正内容をユーザーに提示してから実行する。**
+
+### 5e. マスターリスト欠落タグの追加
+
+Sonnet が推奨したタグがマスターリストに存在しない場合（= Sonnet が「このタグが欲しいが無い」と指摘した場合）:
+
+1. **報告**: 欠落タグの一覧をユーザーに提示する
+2. **ユーザー承認**: 追加してよいか確認する
+3. **正本(kakomon-manager)に追加**: `~/kakomon-manager/lib/constants/topic-master.ts` のツリーに追記
+   - 5階層（科目/分野/単元/サブ単元/トピック）を厳守
+   - 同じサブ単元にすでに類似タグがないか確認（重複防止）
+   - kakomon-manager をコミット＋push
+4. **同期**: kakomon-generator で同期スクリプトを実行
+   ```bash
+   cd /home/stsrjkt/kakomon-generator
+   npx tsx scripts/sync-topic-master.ts
+   ```
+5. **ビルド確認**: `npm run build` で型チェック通過を確認
+6. **コミット**: kakomon-generator もコミット＋push（他の変更と混ぜない）
+
+**重要**: タグの追加・修正は必ず kakomon-manager 側で行う（正本）。
+kakomon-generator の `src/constants/topic-master.ts` は自動生成ファイルなので直接編集しない。
+
+よくある欠落パターン:
+- **確率漸化式**: `数学/数学A/場合の数と確率/確率/確率漸化式`
+- **連立漸化式**: `数学/数学B/数列/漸化式/連立漸化式`
+- **定積分と不等式**: `数学/数学Ⅲ/積分法/定積分/定積分と不等式`
+
+### 5f. 一時ファイルの削除
+
+検証完了後、ダウンロードした画像を削除する:
+
+```bash
+rm -rf /tmp/{university}-{subject}-verify
+```
+
+**ローカルに問題画像を蓄積しない。** R2 が正本であり、検証のたびに一時DLして終わったら消す。
+
+## 再実行
+
+同一パラメータで再実行する場合、`--force` フラグが既にワークフローに組み込まれているため、
+既存の kakomon_questions を上書きする。Phase 2 からやり直せばよい。
+Phase 5（Sonnet チェック）のみ再実行したい場合は Phase 5a から。
+
+
+ARGUMENTS: 大阪大学 数学 残りの年度
+
+---
+
+おねがいします
+
+---
+
+そしたら、kakomon-manager側のトピックマスターリストも更新されたってことでいい？
+
+---
+
+じゃ、実際に /kakomon-split-ghaをやってみて、スキルそのものやターミナル環境そのものの改善点はなかった？
+
+---
+
+その中で品質を落とすような悪い手抜きはないですか？
+
+---
+
+Sonnet 単独判定は問題有りません。geminiはトピック付から外したので、それでいいんです。結局のところ、修正点はまとめるとなんですか？
+
+---
+
+じゃ、おねがいします
+
+---
+
+<task-notification>
+<task-id>ab78facc261bedce4</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<status>completed</status>
+<summary>Agent "Create DB batch update script" completed</summary>
+<result>No errors. The script is clean. Here is a summary of what was created:
+
+---
+
+## Created: `/home/stsrjkt/kakomon-generator/scripts/batch-update-tags.ts`
+
+### What it does
+
+1. **Reads a JSON file** from the positional argument (resolved to an absolute path, so it works from any cwd).
+2. **Validates every tag** in each entry against `isValidTopic` from `src/constants/topic-master.ts`. Any entry that contains even one invalid tag is skipped with an error message; all other entries continue.
+3. **`--dry-run` mode**: prints what would be updated, increments the success counter, touches nothing in the DB.
+4. **Live mode**: calls `supabase.from("kakomon_questions").update({ topic_tags }).eq("id", question_id)` for each valid entry.
+5. **Summary line** at the end: success / failed / skipped / total.
+6. Exits with code `1` if any live updates failed (so shell scripts can detect partial failure).
+
+### Execution
+
+```bash
+# dry-run first
+./scripts/with-env.sh npx tsx scripts/batch-update-tags.ts tags.json --dry-run
+
+# apply for real
+./scripts/with-env.sh npx tsx scripts/batch-update-tags.ts tags.json
+```
+
+### Style notes followed from the existing codebase
+
+- `#!/usr/bin/env tsx` shebang
+- `function getArg` pattern was not needed here (positional + `includes("--dry-run")` is simpler), but the arg-parsing style matches `delete-documents.ts`
+- `createClient(sbUrl, sbKey)` with explicit null check and `process.exit(1)` error path, identical to `query-documents.ts` / `delete-documents.ts`
+- No external CLI framework (no commander / yargs) - raw `process.argv`, consistent with all other scripts
+- `main().catch(...)` tail pattern</result>
+<usage><total_tokens>38267</total_tokens><tool_uses>10</tool_uses><duration_ms>63837</duration_ms></usage>
+</task-notification>
+Full transcript available at: REDACTED.output
+
+---
+
+<task-notification>
+<task-id>a3ee026bf62057b8f</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<status>completed</status>
+<summary>Agent "Update skill and gitignore" completed</summary>
+<result>Both files are correct. Here is a summary of all changes made:
+
+---
+
+## Changes Made
+
+### 1. `/home/stsrjkt/.claude/skills/kakomon-split-gha/SKILL.md`
+
+**修正A: Phase 5 の前提説明を修正**
+
+- `description` フィールド (3-6行目): 「GHA 完了後に Sonnet クロスチェックでトピックタグを検証・修正する」→「GHA は --skip-tags で実行されるため、GHA 完了後に Sonnet でトピックタグを新規付与する」
+- 概要セクション (18-19行目): 「GHA 完了後、Gemini が付与したトピックタグを Sonnet で検証する」→「GHA は --skip-tags で実行されるため、トピックタグは空の状態で完了する。GHA 完了後、Sonnet（Task tool, model: sonnet）でトピックタグを新規付与する」
+- Phase 5 タイトル (198行目): 「Sonnet クロスチェック（トピックタグ検証）」→「Sonnet タグ付け（トピックタグ新規付与）」
+- Phase 5 冒頭 (200-201行目): 「GHA 完了後、Gemini が付与したトピックタグを Sonnet で検証する」→「GHA は --skip-tags で実行されるため、トピックタグは空の状態で完了する。Phase 5 では Sonnet がトピックタグを新規付与する」
+- **5b タイトル**: 「Sonnet 並列検証」→「Sonnet 並列タグ付け」
+- **5b プロンプトテンプレート**: 「検証する専門家」「Gemini 付与タグの検証」フローを全廃し、純粋な「タグ付けを行う専門家」として新規付与フローに差し替え。出力 JSON も `current_tags_assessment` / `missing_tags` / `overall_verdict` を削除し `recommended_tags` のみに簡素化
+- **5c タイトル＆内容**: 「結果の集約と判定」→「結果の集約と DB 書き込み」。Gemini vs Sonnet 比較表と3段階判定ルールを削除し、「Sonnet の結果をそのまま DB に書き込む」旨のシンプルな記述に置き換え
+
+**修正B: Phase 2 に year フィルタ推奨を追記**
+
+- scan モードの例コードブロックの直後（106行目）に注意書きを追加:
+  「`**注意**: year を省略すると全年度を処理する。既に分割済みの年度がある場合は year を指定して無駄な再実行を避けること。`」
+
+---
+
+### 2. `/home/stsrjkt/kakomon-generator/.gitignore`
+
+末尾に以下の4行を追記:
+
+```
+audit-*/
+/*.pdf
+/query-*.ts
+tmp/
+```
+
+- `audit-*/`: ルートの audit-* ディレクトリ群を除外
+- `/*.pdf`: ルートの PDF ファイルのみ除外（`/` プレフィックスでルート限定）
+- `/query-*.ts`: ルートの query-*.ts ファイルのみ除外
+- `tmp/`: tmp/ ディレクトリを除外</result>
+<usage><total_tokens>40825</total_tokens><tool_uses>13</tool_uses><duration_ms>84680</duration_ms></usage>
+</task-notification>
+Full transcript available at: REDACTED.output
+
+---
+
+おねがい
