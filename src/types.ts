@@ -10,6 +10,7 @@ export interface CliOptions {
   year: number;
   examType: ExamType;
   outDir?: string;
+  skipTags?: boolean;
 }
 
 /** Phase1: 境界検出の結果 */

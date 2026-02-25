@@ -19,7 +19,10 @@ import {
 } from "../constants/topic-master.js";
 import type { SplitResult, TagResult } from "../types.js";
 
-const modelName = process.env.GEMINI_VISION_MODEL ?? "gemini-3-flash-preview";
+if (!process.env.GEMINI_VISION_MODEL) {
+  throw new Error("GEMINI_VISION_MODEL environment variable is required (do not hardcode model names)");
+}
+const modelName: string = process.env.GEMINI_VISION_MODEL;
 
 const BASE_SUBJECT_TO_JA: Record<string, string> = {
   math: "数学",
@@ -31,19 +34,28 @@ const BASE_SUBJECT_TO_JA: Record<string, string> = {
 };
 
 
-const TOPIC_SELECTION_RULES = `【トピック選択の粒度ルール - 厳守】
-以下のルールでトピックの数を絞り込んでください。タグは少なく正確に。
+function buildTopicSelectionRules(_subject: string): string {
+  return `【トピック選択ルール - 厳守】
+タグは少なく正確に。以下の手順で選択すること。
 
-1. 大問の核心テーマに直結するトピックのみ選択する
-   - ○ その問題を特徴づける物理現象・数学的手法（例：慣性力、エネルギー保存則、漸化式）
-   - × 解く過程で使うだけの基本ツール（例：力のベクトル図、v=v₀+at、仕事の定義）
-   判断基準：「このトピックを消したら問題の本質が変わるか？」→ 変わらないなら付けない
+■ Step 1: まず問題の本質を一言で説明する
+「この問題は何の問題か？」を一言で説明してください。
 
-2. 同じサブ単元（第4階層）のトピックは最も代表的なもの1つだけ選ぶ
-   - × 「v=v₀+at」と「x=v₀t+(1/2)at²」を両方 → ○ 等加速度直線運動の中で1つだけ
-   - × 「静止摩擦力」と「動摩擦力」と「最大摩擦力」を全部 → ○ 問題で主に扱う1つだけ
+■ Step 2: Step 1 の説明に直接対応するトピックのみ選ぶ
+Step 1 の説明に登場するキーワードに対応するトピックだけをマスターリストから選ぶ。
+Step 1 に登場しないテーマのトピックは選ばない。
 
-3. 1つの大問につきトピックは1〜4個を目安とする（多くても5個まで）`;
+■ 核心テーマ vs 補助的手法
+○ 核心 = その大問固有のテーマ。これがなければ別の問題になる
+× 補助 = 多くの問題で汎用的に使う計算道具。なくても問題の個性は変わらない
+判断:「この問題を知らない人に『何の問題？』と聞かれて答える内容」に含まれるか？
+  → 含まれる → タグを付ける
+  → 含まれない → タグを付けない
+
+■ その他のルール
+- 同じサブ単元（第4階層）のトピックは最も代表的なもの1つだけ選ぶ
+- 1つの大問につきトピックは1〜4個を目安とする（多くても5個まで）`;
+}
 
 /**
  * 科目キーをトピックマスター用の正規科目名に寄せる。
@@ -68,7 +80,7 @@ function buildCachedInstruction(subject: string, topicListStr: string): string {
 - マスターリストにないパスは絶対に使わないでください
 - 複数のトピックにまたがる場合は複数返してください
 
-${TOPIC_SELECTION_RULES}
+${buildTopicSelectionRules(subject)}
 
 - JSON配列のみを返してください。マークダウンのコードブロックは不要です。
 
@@ -142,7 +154,10 @@ export async function tagSingleQuestion(
   // キャッシュ使用時はシンプルなプロンプト、未使用時はフルプロンプト
   let prompt: string;
   if (cachedContentName) {
-    prompt = `${promptPrefix}この問題の出題分野のトピックタグをJSON配列で返してください。`;
+    prompt = `${promptPrefix}
+
+まず Step 1 として「この問題は何の問題か」を一言で説明し、
+次に Step 2 としてその説明に対応するトピックタグをJSON配列で返してください。`;
   } else {
     const topicListStr = (topicList ?? []).join("\n");
     prompt = `${promptPrefix}
@@ -153,7 +168,7 @@ export async function tagSingleQuestion(
 - マスターリストにないパスは絶対に使わないでください
 - 複数のトピックにまたがる場合は複数返してください
 
-${TOPIC_SELECTION_RULES}
+${buildTopicSelectionRules(subject)}
 
 【マスターリスト】
 ${topicListStr}

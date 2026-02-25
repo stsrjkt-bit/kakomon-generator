@@ -83,7 +83,7 @@ jobs:
           if [ -f tmp/answer.pdf ]; then
             ARGS="${ARGS} --answer tmp/answer.pdf"
           fi
-          node dist/index.js ${ARGS}
+          node dist/index.js ${ARGS} --skip-tags
 
   # ========== batch: 複数大学・同一year/exam_type ==========
   prepare-batch:
@@ -143,7 +143,7 @@ jobs:
           if [ -f tmp/answer.pdf ]; then
             ARGS="${ARGS} --answer tmp/answer.pdf"
           fi
-          node dist/index.js ${ARGS}
+          node dist/index.js ${ARGS} --skip-tags
 
   # ========== scan/list: マトリックスを構築して並列実行 ==========
   scan-r2:
@@ -273,4 +273,4 @@ jobs:
           if [ -f tmp/answer.pdf ]; then
             ARGS="${ARGS} --answer tmp/answer.pdf"
           fi
-          node dist/index.js ${ARGS}
+          node dist/index.js ${ARGS} --skip-tags

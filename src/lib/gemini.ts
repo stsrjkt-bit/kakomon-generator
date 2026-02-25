@@ -2,7 +2,10 @@ import { GoogleGenAI, type GenerateContentResponse, type Part, ThinkingLevel } f
 
 // ─── クライアント初期化 ──────────────────────────────
 
-const modelName = process.env.GEMINI_VISION_MODEL ?? "gemini-3-flash-preview";
+if (!process.env.GEMINI_VISION_MODEL) {
+  throw new Error("GEMINI_VISION_MODEL environment variable is required (do not hardcode model names)");
+}
+const modelName: string = process.env.GEMINI_VISION_MODEL;
 
 let client: GoogleGenAI | null = null;
 

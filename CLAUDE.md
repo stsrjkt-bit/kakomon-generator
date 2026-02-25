@@ -121,7 +121,7 @@ kakomon-manager リポジトリの lib/constants/topic-master.ts をベースに
 
 ```
 GEMINI_API_KEY=
-GEMINI_VISION_MODEL=gemini-3-flash-preview
+GEMINI_VISION_MODEL=  # 必須。モデル名は絶対にハードコードしない
 R2_ACCOUNT_ID=
 R2_ACCESS_KEY_ID=
 R2_SECRET_ACCESS_KEY=
@@ -129,3 +129,10 @@ R2_BUCKET_NAME=
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 ```
+
+## LLMモデル名のルール（厳守）
+
+- モデル名（Gemini等）をソースコードにハードコードしてはならない
+- 必ず環境変数から読み出し、未設定時はエラーで停止する
+- フォールバックのデフォルト値も禁止（`?? "gemini-xxx"` のようなパターンは不可）
+- 理由: LLMのモデル名は頻繁に変わり、ハードコードすると古いモデル名がエラーの原因になる

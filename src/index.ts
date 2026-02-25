@@ -4,7 +4,7 @@
  * 処理フロー:
  *   Phase 1+2a: detectQuestions — 問題PDF → Gemini で境界+座標を一括検出
  *   Phase 2b:   splitProblems  — 検出結果 → 画像切り出し+PDF生成（Gemini不使用）
- *   Phase 3:    tagQuestions   — 切り出し画像 → Gemini でトピック付け
+ *   Phase 3:    tagQuestions   — 切り出し画像 → Gemini でトピック付け（--skip-tags で省略可）
  *   Phase 4:    splitAnswers   — 解答PDF → Gemini で解答領域一括検出+切り出し
  */
 
@@ -83,10 +83,21 @@ async function main(options: CliOptions): Promise<void> {
   console.log(`  切り出し完了: ${splitResults.length}件\n`);
 
   // Phase 3: トピック付け（切り出し画像 → Gemini Vision）
-  console.log("-- Phase 3: トピック付け -------------------------");
-  const subjectName = resolveSubjectName(options.subject);
-  const tagResults = await tagQuestions(splitResults, subjectName);
-  console.log(`  タグ付け完了: ${tagResults.length}件\n`);
+  // --skip-tags 指定時はスキップ（ローカルで Sonnet によるタグ付けを行う場合）
+  let tagResults: import("./types.js").TagResult[] = [];
+  if (options.skipTags) {
+    console.log("-- Phase 3: トピック付け（スキップ: --skip-tags） --\n");
+    tagResults = splitResults.map((s) => ({
+      label: s.label,
+      questionNumber: s.questionNumber,
+      topicTags: [],
+    }));
+  } else {
+    console.log("-- Phase 3: トピック付け -------------------------");
+    const subjectName = resolveSubjectName(options.subject);
+    tagResults = await tagQuestions(splitResults, subjectName);
+    console.log(`  タグ付け完了: ${tagResults.length}件\n`);
+  }
 
   // Phase 4: 解答の切り出し（解答PDFがある場合のみ）
   const boundaries = toBoundaries(detectedQuestions);
@@ -259,6 +270,7 @@ main({
   year: Number(year),
   examType: examType as CliOptions["examType"],
   outDir: getArg("out-dir"),
+  skipTags: args.includes("--skip-tags"),
 }).catch((err) => {
   console.error("エラー:", err);
   process.exit(1);
