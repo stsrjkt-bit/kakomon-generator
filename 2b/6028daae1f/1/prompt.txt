@@ -1,0 +1,453 @@
+東北地方のdb登録済みの大学をリストアップして
+
+---
+
+その６大学の数学のkakomon-subject-auditを実施して
+
+---
+
+<task-notification>
+<task-id>a7189f371971d3a73</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<status>completed</status>
+<summary>Agent "Audit fukushima math" completed</summary>
+<usage><total_tokens>80923</total_tokens><tool_uses>34</tool_uses><duration_ms>278404</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-stsrjkt-kakomon-generator/tasks/a7189f371971d3a73.output
+
+---
+
+<task-notification>
+<task-id>a61df9fc22cf9c0d9</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<status>completed</status>
+<summary>Agent "Audit yamagata math" completed</summary>
+<result>NULL variant レコードは残存なし。
+
+exam_page_url は既に設定済みなので変更不要です。
+
+---
+
+## 監査結果サマリー
+
+### 山形大学（yamagata）数学 監査結果
+
+**対象**: yamagata / math
+**監査日**: 2026-02-24
+**公式サイト**: https://www.yamagata-u.ac.jp/jp/entrance/result/kakomon/
+
+### 発見事項
+
+| # | 分類 | 内容 | 対応 | 状態 |
+|---|------|------|------|------|
+| 1 | A（不足） | 2024 zenki eng problem/answer 未登録 | fixes-add.json で追加 | 完了 |
+| 2 | A（不足） | 2025 zenki eng problem/answer 未登録 | fixes-add.json で追加 | 完了 |
+| 3 | G（データ品質） | 2024/2025 の既存レコードが共通(kyotsu)なのに variant=NULL, R2パスも generic | R2 copy + DB UPDATE + R2 delete | 完了 |
+| 4 | C（問題なし） | 後期日程に数学は存在しない | 対応不要 | - |
+
+### バリアント構成（確定）
+
+| variant | 対象学部 | 公式ファイル名パターン |
+|---------|----------|----------------------|
+| **kyotsu** | 人文社会科学部・理学部・医学部・農学部 | sugaku_kyotsu |
+| **eng** | 工学部 | sugaku_dokuji / sugaku_kou |
+
+### 最終状態
+
+- 2024 zenki: kyotsu (P+A) + eng (P+A) = 4件
+- 2025 zenki: kyotsu (P+A) + eng (P+A) = 4件
+- **合計: 8件** (修正前: 4件)
+- NULL variant: 0件
+- JA/EN問題: なし
+- 後期数学: 存在しない（正常）</result>
+<usage><total_tokens>74525</total_tokens><tool_uses>50</tool_uses><duration_ms>369557</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-stsrjkt-kakomon-generator/tasks/a61df9fc22cf9c0d9.output
+
+---
+
+<task-notification>
+<task-id>a9c5e7c47dc358374</task-id>
+<tool-use-id>toolu_01VLvUt3x4uq6So57rs8e3H5</tool-use-id>
+<status>completed</status>
+<summary>Agent "Audit fukushima_medical math" completed</summary>
+<result>exam_page_url は医学部のページのみ登録されています。保健科学部のページ (`https://www.fmu.ac.jp/admission/health_sciences/answers.html`) もありますが、exam_page_url は1つしか格納できないため、医学部のページが入っていれば十分です（入試情報のトップページからたどれる）。
+
+---
+
+## 監査結果サマリー
+
+### 対象
+- 大学: 福島県立医科大学（fukushima_medical）
+- 科目: 数学（math）
+
+### 発見事項と対応
+
+| 分類 | 内容 | 対応 | 結果 |
+|------|------|------|------|
+| G-1 | 既存 generic レコード（variant=null）は実際には医学部の数学 | subject_variant=`med` に変更、R2パスも `math_med/` に移行 | 完了 |
+| A-1 | 保健科学部の数学 problem（2025 zenki）が未登録 | `hoken` variant として追加 | 完了 |
+| A-2 | 保健科学部の数学 answer/解答例（2025 zenki）が未登録 | `hoken` variant として追加 | 完了 |
+
+### 最終状態
+
+| year | exam_type | variant | content_type | R2 path |
+|------|-----------|---------|-------------|---------|
+| 2025 | zenki | med | problem | fukushima_medical/2025/math_med/zenki/problem.pdf |
+| 2025 | zenki | med | answer | fukushima_medical/2025/math_med/zenki/answer.pdf |
+| 2025 | zenki | hoken | problem | fukushima_medical/2025/math_hoken/zenki/problem.pdf |
+| 2025 | zenki | hoken | answer | fukushima_medical/2025/math_hoken/zenki/answer.pdf |
+
+- DB: 4レコード（2 variants x 2 content_types）
+- R2: 4ファイル全て存在確認済み
+- verify-fixes: DB OK 2/2, R2 OK 2/2
+- JA/EN: 問題なし
+- generic パス残存: なし（旧 `math/` パスは削除済み）
+
+### 大学固有の注意点
+- 福島県立医科大学は3学部（医学部・看護学部・保健科学部）で別々の入試ページを持つ
+- 医学部の数学は120分、保健科学部の数学は90分で明確に異なる試験
+- 看護学部は「総合問題」のみで数学の個別試験なし
+- 公式サイトでは問題+出題意図+解答例の3点を公開（解答例を answer として登録）
+- 後期試験での数学は医学部・保健科学部ともに存在しない
+- 掲載は令和7年度（2025）のみ</result>
+<usage><total_tokens>74604</total_tokens><tool_uses>53</tool_uses><duration_ms>382531</duration_ms></usage>
+</task-notification>
+Full transcript available at: REDACTED.output
+
+---
+
+<task-notification>
+<task-id>a008fc006dd336e12</task-id>
+<tool-use-id>toolu_01F1zim9ZwLYpgYNZoWNNV8F</tool-use-id>
+<status>completed</status>
+<summary>Agent "Audit iwate math" completed</summary>
+<result>exam_page_url は既に登録済み。
+
+---
+
+## 監査結果サマリー
+
+### 対象: 岩手大学 (iwate) / 数学 (math)
+
+**Before**: 25 レコード (5 variants: rikou, kyou, nou, zyuui, null)
+**After**: 18 レコード (4 variants: rikou, kyou, nou, null)
+
+### 実施した修正
+
+| 分類 | 件数 | 内容 |
+|---|---|---|
+| B (削除) | 7件 | generic重複 problem 6件 + zyuui重複 1件 |
+| C (問題なし) | 18件 | 残存レコード全て正常 |
+
+### 削除した7件の詳細
+
+| 年度 | exam_type | variant | 理由 |
+|---|---|---|---|
+| 2023 | zenki | null | kyou problem と同一PDF (md5一致) |
+| 2024 | zenki | null | kyou problem と同一PDF (md5一致) |
+| 2025 | zenki | null | kyou problem と同一PDF (md5一致) |
+| 2023 | kouki | null | rikou kouki problem と同一PDF (md5一致) |
+| 2024 | kouki | null | rikou kouki problem と同一PDF (md5一致) |
+| 2025 | kouki | null | rikou zenki problem が誤格納 (正しい後期PDFは rikou kouki に存在) |
+| 2025 | zenki | zyuui | nou problem と同一PDF (md5一致, 農学部/獣医学部は共通試験) |
+
+### 最終レコード構成
+
+**前期 (zenki)**:
+- kyou (教育学部): 問題3年分 + 解答はgenericに包含
+- rikou (理工学部): 問題3年分 + 解答はgenericに包含
+- nou (農学部/獣医学部): 問題3年分 + 解答はgenericに包含
+- null (generic): answer 3年分 (全バリアントの解答を包含した合冊切り出しPDF)
+
+**後期 (kouki)**:
+- rikou (理工学部): 問題3年分 (後期は理工学部のみ)
+- null (generic): answer 3年分 (後期は1バリアントのみなので generic で正しい)
+
+### 大学固有の知見
+
+- 岩手大学の前期数学は教育学部(kyou)/理工学部(rikou)/農学部(nou)の3バリアント
+- 2025年度から獣医学部が分離掲載されたが、農学部と同一試験問題
+- 後期は理工学部のみで数学あり（人文社会・教育は小論文のみ）
+- 解答例は全科目合冊PDFで公開。数学は各バリアントの解答が1つのPDFにまとまっている
+- 公式サイトの `_1` サフィックスは WordPress 自動付与の場合と後期用の別ファイルの場合がある（要注意）</result>
+<usage><total_tokens>86496</total_tokens><tool_uses>54</tool_uses><duration_ms>452304</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-stsrjkt-kakomon-generator/tasks/a008fc006dd336e12.output
+
+---
+
+両大学とも実行してください
+
+---
+
+<task-notification>
+<task-id>a204eea85af9f5b60</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<status>completed</status>
+<summary>Agent "Resume akita audit deletions" completed</summary>
+<result>全て正常。最終確認結果をまとめます。
+
+---
+
+## 削除完了サマリー
+
+秋田大学（akita）数学の9件の削除が完了しました。
+
+**削除結果:**
+- DB レコード: 9件削除
+- R2 オブジェクト: 9件削除
+
+**削除内訳:**
+| ID (先頭8桁) | 年度 | 日程 | variant | content_type | 削除理由 |
+|---|---|---|---|---|---|
+| 7a416fbd | 2019 | zenki | - | answer | 出題意図 |
+| e3ef8bb9 | 2021 | zenki | - | answer | 出題意図 |
+| b4eff39d | 2021 | kouki | - | answer | 出題意図 |
+| fccefd15 | 2022 | zenki | - | answer | 出題意図 |
+| 612d68c2 | 2023 | zenki | - | answer | 出題意図 |
+| 89ca37b6 | 2024 | zenki | - | answer | 出題意図 |
+| b10fe03a | 2025 | zenki | - | answer | 出題意図 |
+| 683ee435 | 2025 | kouki | riko_info | answer | 出題意図 |
+| 92593292 | 2025 | kouki | - | problem | generic重複（riko_infoと同一） |
+
+**削除後の状態 (12件):**
+- 全レコードが problem のみ（answer なし = 秋田大学は数学の模範解答を公開していないため正常）
+- zenki: 2019-2025 の7年度分（全学部共通、generic）
+- kouki: 2021-2024 は generic、2025 は riko_info variant
+- JA/EN 重複: なし
+- generic 重複: なし</result>
+<usage><total_tokens>71454</total_tokens><tool_uses>5</tool_uses><duration_ms>57444</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-stsrjkt-kakomon-generator/tasks/a204eea85af9f5b60.output
+
+---
+
+<task-notification>
+<task-id>a7189f371971d3a73</task-id>
+<tool-use-id>toolu_01X2GBpjCFYfDffgetuvnnbG</tool-use-id>
+<status>completed</status>
+<summary>Agent "Resume fukushima audit fixes" completed</summary>
+<result>日本語subject名のレコードはゼロ。
+
+## 監査結果サマリー
+
+### 福島大学（fukushima）数学 監査完了
+
+**修正前**: 18レコード（math 7件 + 数学（食農学類）8件 + 数学（共生システム理工学類）3件）
+
+**修正後**: 14レコード
+
+**実施した修正:**
+
+| 分類 | 件数 | 内容 | 対応 |
+|---|---|---|---|
+| **B (削除)** | 3件 | 2021/2022/2023 math_shokuno zenki: 中身が**生物**の誤登録 | DB+R2削除 |
+| **B (削除)** | 1件 | 2025 math_shokuno zenki: math genericと同一内容の重複 | DB+R2削除 |
+| **B (削除)** | 1件 | 2023 kouki math generic: 合冊PDF（分割版が別途存在） | DB+R2削除 |
+| **G (DB修正)** | 6件 | 日本語subject名 kouki レコード → subject=math, variant設定, R2パス移行 | R2 upload + DB update + R2旧パス削除 |
+| **G (DB修正)** | 1件 | 2024 math_shokuno zenki: subject「数学（食農学類）」→ math に修正 | DB update |
+| **G (DB修正)** | 2件 | 2021/2022 zenki: is_bundled_origin false→true に修正 | DB update |
+| **G (分割)** | 1件 | 2024 kouki math generic: 合冊PDF(18p)をqpdfで分割→kyousei(8p)+shokuno(6p) | R2 upload + DB update/insert + R2旧パス削除 |
+
+**最終状態 (14件):**
+
+| 年度 | zenki generic | zenki shokuno | kouki kyousei | kouki shokuno |
+|---|:---:|:---:|:---:|:---:|
+| 2021 | problem (bundled) | - | problem | problem |
+| 2022 | problem (bundled) | - | problem | problem |
+| 2023 | problem (bundled) | - | problem | problem |
+| 2024 | problem (bundled) | problem | problem (bundled) | problem (bundled) |
+| 2025 | problem (bundled) | - | - (廃止) | - (廃止) |
+
+- **zenki generic**: 共生理工+食農の数学合冊（物理・化学・生物含む理科合冊の数学部分）
+- **zenki shokuno**: 食農学類向け数学IIAB単独（2024のみ公式サイトで確認、2025は同一内容で重複のため削除済み）
+- **kouki kyousei**: 共生理工向け数学IIIIAB
+- **kouki shokuno**: 食農向け数学IIAB
+- **解答**: 公式サイトで非公開のため全年度answerなし（正常）
+- 2025年度から後期廃止</result>
+<usage><total_tokens>131904</total_tokens><tool_uses>53</tool_uses><duration_ms>540187</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-stsrjkt-kakomon-generator/tasks/a7189f371971d3a73.output
+
+---
+
+db登録済みの北海道地方の大学も数学の監査してくれる？
+
+---
+
+<task-notification>
+<task-id>a7302dd79f5949f6b</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<status>completed</status>
+<summary>Agent "Audit chitose math" completed</summary>
+<result>全て良好です。
+
+確認ポイント:
+- [x] generic パスの残存問題なし（variant なしで正しい）
+- [x] `subject_variant` が null で R2 パスと一致
+- [x] audit-recheck で E=0, F=0
+- [x] 理科バンドル: N/A
+- [x] exam_page_url: 既に登録済み (`https://www.chitose.ac.jp/juken/exam/past_exam`)
+
+---
+
+## 監査結果サマリー: 公立千歳科学技術大学 (chitose) 数学
+
+**結論: 問題なし。追加・削除・修正不要。**
+
+| 項目 | 状態 |
+|------|------|
+| DB レコード数 | 12件 |
+| 年度範囲 | 2023-2025 |
+| 試験種別 | zenki (前期) + chuki (中期) |
+| バリアント | generic (1種のみ、正しい) |
+| problem/answer ペア | 全年度×全日程で完備 (6ペア) |
+| JA名レコード | 0件 (正常) |
+| science バンドル | 0件 (N/A) |
+| データ品質問題 | なし |
+| 公式サイトとのGap | なし |
+
+公式サイトで公開されている数学PDF (2023-2025, 前期+中期, 問題+解答例) が全てDBに正しく登録されています。2025年度から追加された「出題意図」PDFは ingest 対象外であり、これも正しい扱いです。</result>
+<usage><total_tokens>48753</total_tokens><tool_uses>14</tool_uses><duration_ms>98499</duration_ms></usage>
+</task-notification>
+Full transcript available at: REDACTED.output
+
+---
+
+<task-notification>
+<task-id>a5e1702f7e5cf6e89</task-id>
+<tool-use-id>toolu_01MFt9BusNMNfBebzs56DDfG</tool-use-id>
+<status>completed</status>
+<summary>Agent "Audit obihiro math" completed</summary>
+<result>---
+
+## 監査結果サマリ: obihiro（帯広畜産大学）数学
+
+### 結論: 対応不要（数学科目は存在しない）
+
+帯広畜産大学には独立した「数学」科目の入試問題が存在しません。
+
+**入試構造:**
+- **前期日程（zenki）**: 個別試験は「総合問題」1科目のみ（数学・理科・英語の要素を含む融合問題、配点450点）。DB には `subject=general` として 2021-2025 の5年分が problem + answer で登録済み
+- **後期日程（kouki）**: 「小論文」のみ。畜産科学課程（animal）と共同獣医学課程（vet）の2バリアント。DB には `subject=essay` として 2021-2025 の5年分が登録済み
+
+**公式ページ確認結果:**
+- 公式ページ（`https://www.obihiro.ac.jp/past-problems`）に掲載されているPDFは全て「総合問題」「小論文」「作文」「英語」のみ
+- 「数学」という名称のPDFリンクは一切存在しない
+- 前期の総合問題に数学的要素は含まれるが、独立科目としては出題されていない
+
+**分類:**
+| # | 分類 | 内容 | 対応 |
+|---|------|------|------|
+| 1 | C（問題なし） | math レコード 0 件は正常。独立した数学科目が存在しない大学 | 不要 |
+
+**DB の現状（30 件、全て正常）:**
+- general/zenki: 2021-2025 x (problem + answer) = 10 件
+- essay_vet/kouki: 2021-2025 x (problem + answer) = 10 件
+- essay_animal/kouki: 2021-2025 x (problem + answer) = 10 件</result>
+<usage><total_tokens>59348</total_tokens><tool_uses>19</tool_uses><duration_ms>139216</duration_ms></usage>
+</task-notification>
+Full transcript available at: REDACTED.output
+
+---
+
+<task-notification>
+<task-id>a241619967e2c7add</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<status>completed</status>
+<summary>Agent "Audit kitami math" completed</summary>
+<result>全チェック完了。exam_page_url は既に設定済みなので更新不要です。
+
+---
+
+## 監査結果まとめ
+
+**対象**: 北見工業大学 (kitami) / 数学 (math)
+
+**Phase 1 - DB棚卸し**:
+- 既存レコード: 2件（2025 ippan problem + answer）
+- JA名残存: 0件
+- データ品質問題: なし
+
+**Phase 2 - 公式サイト突合**:
+- 公式URL: `https://www.kitami-it.ac.jp/info/faculty/statistics/`
+- 一般選抜 (ippan): 2025年度のみ公開（数学 問題+解答例）
+- 総合型選抜 (sougou): 2023-2025年度公開（数学 問題+解答例）
+
+**Phase 3 - Gap分析**:
+
+| 分類 | 内容 | 件数 |
+|------|------|------|
+| A (不足) | 総合型選抜 (sougou) 数学 2023-2025 problem+answer | 6件 |
+| C (問題なし) | 一般選抜 2025 problem+answer | 2件 |
+| G (データ品質) | exam_type=ippan（国立大学だが前期/後期の区別なし、大学公式表記が「一般選抜」のため ippan のまま維持） | 情報のみ |
+
+**Phase 4 - 追加**:
+- 6件を ingest 完了
+- verify: DB OK 6/6, R2 OK 6/6
+
+**最終状態**:
+- kitami / math: 8件（ippan 2件 + sougou 6件）
+- JA/EN重複: なし (E=0, F=0)
+- variant: なし（generic のみ）</result>
+<usage><total_tokens>59188</total_tokens><tool_uses>26</tool_uses><duration_ms>214393</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-stsrjkt-kakomon-generator/tasks/a241619967e2c7add.output
+
+---
+
+<task-notification>
+<task-id>aabb8e7906f65228a</task-id>
+<tool-use-id>toolu_011hWNXzYhERBhXizy1vfiFy</tool-use-id>
+<status>completed</status>
+<summary>Agent "Audit hokkaido math" completed</summary>
+<result>E=0, F=0 を確認。
+
+exam_page_url は既に設定済みなのでスキップ。
+
+最終確認ポイント:
+- [x] generic パスの残存チェック → kouki の `math/kouki/` は後期1種のみなので generic で正しい
+- [x] zenki は alpha/beta の2バリアントが正しく登録されている
+- [x] `subject_variant` がR2パスの variant 部分と一致している (alpha=math_alpha, beta=math_beta)
+- [x] audit-recheck で E=0, F=0
+- [x] exam_page_url が設定済み
+
+---
+
+## 監査結果サマリー
+
+**対象**: 北海道大学 (hokkaido) / 数学 (math)
+
+### DB状態（修正前）
+| 年度 | exam_type | subject | variant | P | A |
+|------|-----------|---------|---------|---|---|
+| 2025 | kouki | math | null | o | o |
+| 2025 | zenki | math_alpha | alpha | o | o |
+| 2025 | zenki | math_beta | beta | o | o |
+
+### 公式サイト (R7 = 2025のみ掲載中、R6は掲載終了)
+- **前期**: 数学α (数I,II,A,B,C) + 数学β (数I,II,III,A,B,C) の2バリアント、問題+解答あり
+- **後期**: 数学 1種のみ、問題+解答あり
+
+### 検出事項と対応
+
+| 分類 | 内容 | 対応 | 結果 |
+|------|------|------|------|
+| G-1 | `subject=math_alpha` (2件) → 正しくは `subject=math` | DB UPDATE (subject: math_alpha -> math) | 完了 |
+| G-2 | `subject=math_beta` (2件) → 正しくは `subject=math` | DB UPDATE (subject: math_beta -> math) | 完了 |
+| C | kouki math generic (variant=null) | 後期1種のみなので正しい | 対応不要 |
+
+### DB状態（修正後）
+| 年度 | exam_type | subject | variant | P | A |
+|------|-----------|---------|---------|---|---|
+| 2025 | kouki | math | null | o | o |
+| 2025 | zenki | math | alpha | o | o |
+| 2025 | zenki | math | beta | o | o |
+
+全6レコード、公式サイトと完全一致。不足レコードなし。
+
+**備考**: 北海道大学は過去問PDFに掲載期限があり、R6 (2024) 以前のデータは令和6年9月30日で掲載終了済み。現在DBに登録されているのは2025年度のみ。過去年度のデータを追加するには別のソースが必要。</result>
+<usage><total_tokens>53891</total_tokens><tool_uses>31</tool_uses><duration_ms>227857</duration_ms></usage>
+</task-notification>
+Full transcript available at: REDACTED.output
