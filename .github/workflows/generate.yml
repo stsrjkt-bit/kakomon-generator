@@ -29,10 +29,9 @@ on:
         required: false
         type: string
       exam_type:
-        description: '試験種別 - single/batch用'
+        description: '試験種別 - single/batch用（scan時は省略で全exam_type）'
         required: false
         type: string
-        default: zenki
       entries:
         description: 'JSON配列 [{"university":"x","year":"y","exam_type":"z"}, ...] - list用'
         required: false
