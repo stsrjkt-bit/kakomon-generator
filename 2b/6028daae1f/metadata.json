@@ -3,7 +3,7 @@
   "checkpoint_id": "2b6028daae1f",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     ".github/workflows/generate.yml"
   ],
@@ -28,13 +28,20 @@
       "context": "/2b/6028daae1f/2/context.md",
       "content_hash": "/2b/6028daae1f/2/content_hash.txt",
       "prompt": "/2b/6028daae1f/2/prompt.txt"
+    },
+    {
+      "metadata": "/2b/6028daae1f/3/metadata.json",
+      "transcript": "/2b/6028daae1f/3/full.jsonl",
+      "context": "/2b/6028daae1f/3/context.md",
+      "content_hash": "/2b/6028daae1f/3/content_hash.txt",
+      "prompt": "/2b/6028daae1f/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 220,
-    "cache_creation_tokens": 326240,
-    "cache_read_tokens": 8402965,
-    "output_tokens": 39176,
-    "api_call_count": 148
+    "input_tokens": 5668,
+    "cache_creation_tokens": 562626,
+    "cache_read_tokens": 21061293,
+    "output_tokens": 81568,
+    "api_call_count": 299
   }
 }
