@@ -24,6 +24,7 @@
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import sys
@@ -100,7 +101,7 @@ def fetch_questions(field: str, limit: int) -> list:
     params = {
         "select": "id,question_label,topic_tags,split_image_path,answer_content",
         "split_image_path": "not.is.null",
-        "limit": "500",
+        "limit": str(max(500, limit)),
         "order": "created_at.desc",
     }
     try:
@@ -144,7 +145,8 @@ def ocr_with_figure_desc(image_path: str, api_key: str) -> dict:
     """Mistral OCR + bbox_annotation で図の説明付きOCR"""
     cache_path = str(CACHE_DIR / (Path(image_path).stem + "_ocr.json"))
     if os.path.exists(cache_path):
-        return json.load(open(cache_path))
+        with open(cache_path, "r", encoding="utf-8") as f:
+            return json.load(f)
 
     with open(image_path, "rb") as f:
         b64 = base64.standard_b64encode(f.read()).decode()
@@ -215,33 +217,41 @@ def ocr_with_figure_desc(image_path: str, api_key: str) -> dict:
 
 def generate_answer(problem_text: str, api_key: str) -> str:
     """Mistral Largeで解答生成"""
-    cache_key = str(hash(problem_text))[:12]
+    cache_key = hashlib.md5(problem_text.encode()).hexdigest()[:12]
     cache_path = str(CACHE_DIR / f"answer_{cache_key}.txt")
     if os.path.exists(cache_path):
-        return open(cache_path).read()
+        with open(cache_path, "r", encoding="utf-8") as f:
+            return f.read()
 
     prompt = f"""この大学入試問題を全問解いてください。途中式を全て示し、各小問の最終答えを明記せよ。
 
 {problem_text}"""
 
     for attempt in range(3):
-        resp = requests.post(
-            "https://api.mistral.ai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": MISTRAL_LARGE_MODEL,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 8192,
-            },
-            timeout=120,
-        )
+        try:
+            resp = requests.post(
+                "https://api.mistral.ai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": MISTRAL_LARGE_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 8192,
+                },
+                timeout=120,
+            )
+        except Exception as e:
+            print(f"  Answer通信エラー(attempt {attempt+1}): {e}", file=sys.stderr)
+            time.sleep(5 * (attempt + 1))
+            continue
+
         if resp.status_code == 200:
             answer = resp.json()["choices"][0]["message"]["content"]
             os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-            open(cache_path, "w").write(answer)
+            with open(cache_path, "w", encoding="utf-8") as f:
+                f.write(answer)
             return answer
-        elif resp.status_code == 429:
-            time.sleep(5)
+        elif resp.status_code in (429, 500, 502, 503):
+            time.sleep(5 * (attempt + 1))
         else:
             print(f"  Answer ERROR: {resp.status_code}", file=sys.stderr)
             break
@@ -357,7 +367,12 @@ def main():
         # R2からダウンロード
         r2_key = q["split_image_path"]
         local_path = str(CACHE_DIR / r2_key.replace("/", "_"))
-        download_from_r2(r2_key, local_path)
+        if not download_from_r2(r2_key, local_path):
+            print(f"  SKIP: 画像取得失敗", file=sys.stderr)
+            q["_local_image"] = local_path
+            q["_ocr"] = {"text": "", "figures": []}
+            q["_answer"] = ""
+            continue
         q["_local_image"] = local_path
 
         # OCR + 図説明
