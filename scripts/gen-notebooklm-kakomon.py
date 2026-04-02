@@ -245,7 +245,12 @@ def generate_answer(problem_text: str, api_key: str) -> str:
             continue
 
         if resp.status_code == 200:
-            answer = resp.json()["choices"][0]["message"]["content"]
+            data = resp.json()
+            choices = data.get("choices", [])
+            if not choices:
+                print(f"  WARN: Mistral応答にchoicesがない", file=sys.stderr)
+                break
+            answer = choices[0].get("message", {}).get("content", "")
             os.makedirs(os.path.dirname(cache_path), exist_ok=True)
             with open(cache_path, "w", encoding="utf-8") as f:
                 f.write(answer)
@@ -319,7 +324,7 @@ def build_pdf(questions: list, field: str):
             for line in ans_text.split("\n")[:300]:
                 if line.strip():
                     try:
-                        ans_page.insert_text(fitz.Point(30, y), line.strip()[:100],
+                        ans_page.insert_text(fitz.Point(30, y), line.strip()[:500],
                             fontname="japan", fontsize=8, render_mode=0)
                     except Exception:
                         pass
