@@ -11,3 +11,4 @@ audit-*/
 /*.png
 /query-*.ts
 tmp/
+ge2-embeddings.json
