@@ -59,28 +59,23 @@ def get_mistral_key():
 
 
 def fetch_questions(field: str, limit: int) -> list:
-    """Supabaseから問題を取得"""
+    """Supabaseから問題を取得（分野はPython側でフィルタ）"""
     headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
     url = f"{SUPABASE_URL}/rest/v1/kakomon_questions"
+    # 画像ありの全問取得（最大500件）してPython側でフィルタ
     params = {
         "select": "id,question_label,topic_tags,split_image_path,answer_content",
         "split_image_path": "not.is.null",
-        "limit": str(limit),
+        "limit": "500",
         "order": "created_at.desc",
     }
-    if field != "all":
-        params["topic_tags"] = f"cs.{json.dumps([field])}"  # contains
-
     resp = requests.get(url, headers=headers, params=params)
-    if resp.status_code != 200:
-        # フィールド検索がダメならlike検索
-        del params["topic_tags"]
-        resp = requests.get(url, headers=headers, params=params)
-        data = resp.json()
-        if field != "all":
-            data = [q for q in data if any(field in t for t in q.get("topic_tags", []))]
-        return data
-    return resp.json()
+    data = resp.json() if resp.status_code == 200 else []
+
+    if field != "all":
+        data = [q for q in data if any(field in t for t in q.get("topic_tags", []))]
+
+    return data[:limit]
 
 
 def download_from_r2(key: str, local_path: str):
