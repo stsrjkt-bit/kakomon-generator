@@ -103,27 +103,41 @@ def fetch_questions(field: str, limit: int) -> list:
         "limit": "500",
         "order": "created_at.desc",
     }
-    resp = requests.get(url, headers=headers, params=params)
-    data = resp.json() if resp.status_code == 200 else []
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=30)
+    except Exception as e:
+        print(f"FATAL: Supabase接続エラー: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if resp.status_code != 200:
+        print(f"FATAL: Supabase応答エラー: {resp.status_code} {resp.text[:200]}", file=sys.stderr)
+        sys.exit(1)
+
+    data = resp.json()
 
     if field != "all":
-        data = [q for q in data if any(field in t for t in q.get("topic_tags", []))]
+        data = [q for q in data if any(field in t for t in (q.get("topic_tags") or []))]
 
     return data[:limit]
 
 
-def download_from_r2(key: str, local_path: str):
-    """R2から画像をダウンロード"""
+def download_from_r2(key: str, local_path: str) -> bool:
+    """R2から画像をダウンロード。成功=True"""
     if os.path.exists(local_path):
-        return
-    s3 = boto3.client("s3",
-        endpoint_url=R2_ENDPOINT,
-        aws_access_key_id=R2_ACCESS_KEY,
-        aws_secret_access_key=R2_SECRET_KEY,
-        region_name="auto",
-    )
-    os.makedirs(os.path.dirname(local_path), exist_ok=True)
-    s3.download_file(R2_BUCKET, key, local_path)
+        return True
+    try:
+        s3 = boto3.client("s3",
+            endpoint_url=R2_ENDPOINT,
+            aws_access_key_id=R2_ACCESS_KEY,
+            aws_secret_access_key=R2_SECRET_KEY,
+            region_name="auto",
+        )
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        s3.download_file(R2_BUCKET, key, local_path)
+        return True
+    except Exception as e:
+        print(f"  WARN: R2ダウンロード失敗 {key}: {e}", file=sys.stderr)
+        return False
 
 
 def ocr_with_figure_desc(image_path: str, api_key: str) -> dict:
@@ -136,33 +150,43 @@ def ocr_with_figure_desc(image_path: str, api_key: str) -> dict:
         b64 = base64.standard_b64encode(f.read()).decode()
 
     for attempt in range(3):
-        resp = requests.post(
-            "https://api.mistral.ai/v1/ocr",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": MISTRAL_OCR_MODEL,
-                "document": {"type": "image_url", "image_url": f"data:image/png;base64,{b64}"},
-                "include_image_base64": False,
-                "bbox_annotation_format": {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "figure_desc",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "figure_type": {"type": "string"},
-                                "description": {"type": "string"},
+        try:
+            resp = requests.post(
+                "https://api.mistral.ai/v1/ocr",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": MISTRAL_OCR_MODEL,
+                    "document": {"type": "image_url", "image_url": f"data:image/png;base64,{b64}"},
+                    "include_image_base64": False,
+                    "bbox_annotation_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "figure_desc",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "figure_type": {"type": "string"},
+                                    "description": {"type": "string"},
+                                },
+                                "required": ["figure_type", "description"],
                             },
-                            "required": ["figure_type", "description"],
                         },
                     },
                 },
-            },
-            timeout=30,
-        )
+                timeout=30,
+            )
+        except Exception as e:
+            print(f"  OCR通信エラー(attempt {attempt+1}): {e}", file=sys.stderr)
+            time.sleep(3)
+            continue
+
         if resp.status_code == 200:
             data = resp.json()
-            page = data["pages"][0]
+            pages = data.get("pages", [])
+            if not pages:
+                print(f"  WARN: OCR応答にpagesがない", file=sys.stderr)
+                break
+            page = pages[0]
             result = {
                 "text": page.get("markdown", ""),
                 "figures": [],
@@ -170,14 +194,18 @@ def ocr_with_figure_desc(image_path: str, api_key: str) -> dict:
             for img in page.get("images", []):
                 ann = img.get("image_annotation")
                 if ann:
-                    if isinstance(ann, str):
-                        ann = json.loads(ann)
-                    result["figures"].append(ann)
+                    try:
+                        if isinstance(ann, str):
+                            ann = json.loads(ann)
+                        result["figures"].append(ann)
+                    except json.JSONDecodeError:
+                        pass
             os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-            json.dump(result, open(cache_path, "w"), ensure_ascii=False)
+            with open(cache_path, "w") as f:
+                json.dump(result, f, ensure_ascii=False)
             return result
-        elif resp.status_code == 429:
-            time.sleep(5)
+        elif resp.status_code in (429, 500, 502, 503):
+            time.sleep(5 * (attempt + 1))
         else:
             print(f"  OCR ERROR: {resp.status_code}", file=sys.stderr)
             break
