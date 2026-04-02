@@ -34,28 +34,62 @@ import boto3
 import fitz  # pymupdf
 import requests
 
-# === 設定 ===
-SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "https://ftuosfdudttlkaaoqgep.supabase.co")
-SUPABASE_KEY = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "sb_publishable_Ym-gXWKdIL0WEnYSmg_RRQ_jlwNQ8Dz")
-MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
+# === 設定（全て環境変数 or Doppler から。ハードコード禁止） ===
+def _env(key: str) -> str:
+    val = os.environ.get(key, "")
+    if not val:
+        # Doppler fallback
+        import subprocess
+        try:
+            val = subprocess.check_output(
+                ["doppler", "secrets", "get", "--plain", key, "-p", "sato-juku", "-c", "prd"],
+                stderr=subprocess.DEVNULL,
+            ).decode().strip()
+        except Exception:
+            pass
+    if not val:
+        print(f"FATAL: 環境変数 {key} が未設定（Dopplerにもない）", file=sys.stderr)
+        sys.exit(1)
+    return val
 
-R2_ENDPOINT = "https://c26cfd50b1e62f2658d36b274d619776.r2.cloudflarestorage.com"
-R2_ACCESS_KEY = os.environ.get("R2_ACCESS_KEY_ID", "73dd779f12cbcae012f03e90dc1feb88")
-R2_SECRET_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "716117f255b4db0b18aa6ffa2c288444272bb18cb6399d573b34fc9c84a5cb1d")
-R2_BUCKET = "kakomon-pdfs"
+SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_ANON_KEY", "")
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
+MISTRAL_OCR_MODEL = os.environ.get("MISTRAL_OCR_MODEL", "")
+MISTRAL_LARGE_MODEL = os.environ.get("MISTRAL_LARGE_MODEL", "")
+
+R2_ENDPOINT = os.environ.get("R2_ENDPOINT", "")
+R2_ACCESS_KEY = os.environ.get("R2_ACCESS_KEY_ID", "")
+R2_SECRET_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
+R2_BUCKET = os.environ.get("KAKOMON_R2_BUCKET_NAME", os.environ.get("R2_BUCKET_NAME", ""))
 
 OUT_DIR = Path(__file__).parent.parent / "notebooklm"
 CACHE_DIR = Path(__file__).parent.parent / "notebooklm-cache"
 
 
-def get_mistral_key():
-    if MISTRAL_API_KEY:
-        return MISTRAL_API_KEY
-    # Doppler fallback
-    import subprocess
-    return subprocess.check_output(
-        ["doppler", "secrets", "get", "--plain", "MISTRAL_API_KEY", "-p", "sato-juku", "-c", "prd"]
-    ).decode().strip()
+def ensure_env():
+    """起動時に必要な環境変数を全てDopplerから取得"""
+    global SUPABASE_URL, SUPABASE_KEY, MISTRAL_API_KEY, MISTRAL_OCR_MODEL, MISTRAL_LARGE_MODEL
+    global R2_ENDPOINT, R2_ACCESS_KEY, R2_SECRET_KEY, R2_BUCKET
+
+    if not MISTRAL_API_KEY:
+        MISTRAL_API_KEY = _env("MISTRAL_API_KEY")
+    if not MISTRAL_OCR_MODEL:
+        MISTRAL_OCR_MODEL = _env("MISTRAL_OCR_MODEL")
+    if not MISTRAL_LARGE_MODEL:
+        MISTRAL_LARGE_MODEL = _env("MISTRAL_LARGE_MODEL")
+    if not SUPABASE_URL:
+        SUPABASE_URL = _env("SUPABASE_URL")
+    if not SUPABASE_KEY:
+        SUPABASE_KEY = _env("SUPABASE_ANON_KEY")
+    if not R2_ENDPOINT:
+        R2_ENDPOINT = _env("R2_ENDPOINT")
+    if not R2_ACCESS_KEY:
+        R2_ACCESS_KEY = _env("R2_ACCESS_KEY_ID")
+    if not R2_SECRET_KEY:
+        R2_SECRET_KEY = _env("R2_SECRET_ACCESS_KEY")
+    if not R2_BUCKET:
+        R2_BUCKET = _env("KAKOMON_R2_BUCKET_NAME")
 
 
 def fetch_questions(field: str, limit: int) -> list:
@@ -106,7 +140,7 @@ def ocr_with_figure_desc(image_path: str, api_key: str) -> dict:
             "https://api.mistral.ai/v1/ocr",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
-                "model": "mistral-ocr-latest",
+                "model": MISTRAL_OCR_MODEL,
                 "document": {"type": "image_url", "image_url": f"data:image/png;base64,{b64}"},
                 "include_image_base64": False,
                 "bbox_annotation_format": {
@@ -167,7 +201,7 @@ def generate_answer(problem_text: str, api_key: str) -> str:
             "https://api.mistral.ai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
-                "model": "mistral-large-latest",
+                "model": MISTRAL_LARGE_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 8192,
             },
@@ -272,7 +306,8 @@ def main():
     parser.add_argument("--skip-answer", action="store_true", help="解答生成をスキップ")
     args = parser.parse_args()
 
-    api_key = get_mistral_key()
+    ensure_env()
+    api_key = MISTRAL_API_KEY
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     # Step 1: 問題取得
