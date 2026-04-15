@@ -1,5 +1,11 @@
 # kakomon-generator
 
+## 共通方針
+
+- 個人共通の AI 開発標準は `~/ai-dev-playbook/STACK_POLICY.md` と `~/ai-dev-playbook/HOST_RULES.md` を参照
+- このファイルは `kakomon-generator` 固有の仕様と制約だけを定義する
+- 共通方針と衝突する場合は、このファイルのプロジェクト固有ルールを優先する
+
 ## これは何か
 大学入試の過去問PDFから、大問ごとに以下の4点セットを生成するCLIツール。
 これ以外は一切作らない。
